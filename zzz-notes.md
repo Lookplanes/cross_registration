@@ -1,27 +1,129 @@
-==================================================
-==== Our Final ====
-Intra-modal (Fake C0 vs Fixed C0) - Before Registration: ZNCC = 0.4961, MSE = 0.0339
-Intra-modal (Fake C0 vs Fixed C0) - After Registration : ZNCC = 0.6940, MSE = 0.0228
-Cross-modal (Real C1 vs Fixed C0) - Before Registration: NMI  = 1.0633, Fore-Dice = 0.9420
-Cross-modal (Real C1 vs Fixed C0) - After Registration : NMI  = 1.0720, Fore-Dice = 0.9245
-Flow Quality Metrics - EPE = 6.4935
-Flow Quality Metrics - Negative Jacobian Ratio (Folding) = 3.283721%
-==================================================
+## Command:
+CUDA_VISIBLE_DEVICES=0,1 nohup /data2/xujr/conda-envs/transmorph/bin/python -u train_TransMorph_supervise.py > nohup_train.log 2>&1 &
 
 
-==================================================
-==== Unsupervised TransMorph Baseline Final ====
-Cross-modal Direct - Before Registration: ZNCC = 0.1226
-Cross-modal Direct - After Registration : ZNCC = 0.1738
-Cross-modal Mappings - Before Registration: NMI  = 1.0633, Fore-Dice = 0.9420
-Cross-modal Mappings - After Registration : NMI  = 1.0773, Fore-Dice = 0.9507
-Flow Quality Metrics - EPE = 7.2733
-Flow Quality Metrics - Negative Jacobian Ratio (Folding) = 0.000000%
-==================================================
 
-==================================================
-==== 传统方法 ANTs/SyN (MI) Baseline Final ====
-Cross-modal Mappings - Before Registration: NMI  = 1.0633, Fore-Dice = 0.9420, ZNCC = 0.1226
-Cross-modal Mappings - After Registration : NMI  = 1.0777, Fore-Dice = 0.9275, ZNCC = 0.2307
-*** Speed Metrics - Optimization Time per pair: 1.2934 seconds ***
-==================================================
+
+
+
+
+
+## Results:
+ch1_to_ch0
+
+================================================================================
+[Method: Our Pipeline]
+--------------------------------------------------------------------------------
+* Intra-modal Metrics (Fake C0 vs Real C0):
+  - Pre-Reg  -> ZNCC : 0.4961  |  MSE : 0.0339
+  - Post-Reg -> ZNCC : 0.6940  |  MSE : 0.0228
+--------------------------------------------------------------------------------
+* Cross-modal Metrics (Real C1 vs Real C0):
+  - Pre-Reg  -> NMI  : 1.0633  |  Fore-Dice : 0.9420  |  cross-ZNCC : 0.1226
+  - Post-Reg -> NMI  : 1.0720  |  Fore-Dice : 0.9245  |  cross-ZNCC : 0.2023
+--------------------------------------------------------------------------------
+* Flow Quality Metrics:
+  - EPE (End Point Error)  : 6.4935
+  - Folding (Negative Jac) : 3.2837%
+================================================================================
+
+================================================================================
+[Method: Unsupervised TransMorph Baseline]
+--------------------------------------------------------------------------------
+* Cross-modal Metrics (Real C1 vs Real C0):
+  - Pre-Reg  -> NMI: 1.0633  |  Fore-Dice: 0.9420  |  cross-ZNCC: 0.1226
+  - Post-Reg -> NMI: 1.0773  |  Fore-Dice: 0.9507  |  cross-ZNCC: 0.1738
+--------------------------------------------------------------------------------
+* Flow Quality Metrics:
+  - EPE (End Point Error)  : 7.2733
+  - Folding (Negative Jac) : 0.0000%
+================================================================================
+
+================================================================================
+[Method: Traditional ANTs/SyN (MI) Baseline]
+--------------------------------------------------------------------------------
+* Cross-modal Metrics (Real C1 vs Real C0):
+  - Pre-Reg  -> NMI: 1.0633  |  Fore-Dice: 0.9420  |  cross-ZNCC: 0.1226
+  - Post-Reg -> NMI: 1.0777  |  Fore-Dice: 0.9275  |  cross-ZNCC: 0.2307
+--------------------------------------------------------------------------------
+* Speed Metrics:
+  - Optimization Time: 1.2934 s/pair
+================================================================================
+
+
+ch0_to_ch1
+
+================================================================================
+[Method: Our Pipeline]
+--------------------------------------------------------------------------------
+* Intra-modal Metrics (Fake C0 vs Real C0):
+  - Pre-Reg  -> ZNCC : 0.2170  |  MSE : 0.0430
+  - Post-Reg -> ZNCC : 0.5689  |  MSE : 0.0273
+--------------------------------------------------------------------------------
+* Cross-modal Metrics (Real C1 vs Real C0):
+  - Pre-Reg  -> NMI  : 1.0552  |  Fore-Dice : 0.9429  |  cross-ZNCC : 0.1194
+  - Post-Reg -> NMI  : 1.0721  |  Fore-Dice : 0.9270  |  cross-ZNCC : 0.1951
+--------------------------------------------------------------------------------
+* Flow Quality Metrics:
+  - EPE (End Point Error)  : 6.2510
+  - Folding (Negative Jac) : 3.0735%
+================================================================================
+
+================================================================================
+[Method: Unsupervised TransMorph Baseline]
+--------------------------------------------------------------------------------
+* Cross-modal Metrics (Real C1 vs Real C0):
+  - Pre-Reg  -> NMI: 1.0552  |  Fore-Dice: 0.9429  |  cross-ZNCC: 0.1194
+  - Post-Reg -> NMI: 1.0771  |  Fore-Dice: 0.9520  |  cross-ZNCC: 0.1786
+--------------------------------------------------------------------------------
+* Flow Quality Metrics:
+  - EPE (End Point Error)  : 7.2736
+  - Folding (Negative Jac) : 0.0000%
+================================================================================
+
+================================================================================
+[Method: Traditional ANTs/SyN (MI) Baseline]
+--------------------------------------------------------------------------------
+* Cross-modal Metrics (Real C1 vs Real C0):
+  - Pre-Reg  -> NMI: 1.0552  |  Fore-Dice: 0.9429  |  cross-ZNCC: 0.1194
+  - Post-Reg -> NMI: 1.0836  |  Fore-Dice: 0.9324  |  cross-ZNCC: 0.2540
+--------------------------------------------------------------------------------
+* Speed Metrics:
+  - Optimization Time: 1.2915 s/pair
+===============================================================================
+
+
+ch1_to_ch0
+改版后
+================================================================================
+[Method: Our Pipeline]
+--------------------------------------------------------------------------------
+* Intra-modal Metrics (Fake C0 vs Real C0):
+  - Pre-Reg  -> ZNCC : 0.4961  |  MSE : 0.0339
+  - Post-Reg -> ZNCC : 0.7942  |  MSE : 0.0171
+--------------------------------------------------------------------------------
+* Cross-modal Metrics (Real C1 vs Real C0):
+  - Pre-Reg  -> NMI  : 1.0633  |  Fore-Dice : 0.9420  |  cross-ZNCC : 0.1226
+  - Post-Reg -> NMI  : 1.0811  |  Fore-Dice : 0.9344  |  cross-ZNCC : 0.2580
+--------------------------------------------------------------------------------
+* Flow Quality Metrics:
+  - EPE (End Point Error)  : 6.1499
+  - Folding (Negative Jac) : 0.2578%
+================================================================================
+
+加了mask
+================================================================================
+[Method: Our Pipeline]
+--------------------------------------------------------------------------------
+* Intra-modal Metrics (Fake C0 vs Real C0):
+  - Pre-Reg  -> ZNCC : 0.4961  |  MSE : 0.0339
+  - Post-Reg -> ZNCC : 0.8428  |  MSE : 0.0142
+--------------------------------------------------------------------------------
+* Cross-modal Metrics (Real C1 vs Real C0):
+  - Pre-Reg  -> NMI  : 1.0633  |  Fore-Dice : 0.9420  |  cross-ZNCC : 0.1226
+  - Post-Reg -> NMI  : 1.0806  |  Fore-Dice : 0.9464  |  cross-ZNCC : 0.2463
+--------------------------------------------------------------------------------
+* Flow Quality Metrics:
+  - EPE (End Point Error)  : 3.8448
+  - Folding (Negative Jac) : 0.0003%
+================================================================================

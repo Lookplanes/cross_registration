@@ -823,7 +823,9 @@ class TransMorph(nn.Module):
             out_channels=2,
             kernel_size=3,
         )
-        self.integrate = VecInt(config.img_size, nsteps=7)
+        self.if_diffeomorphic = getattr(config, 'if_diffeomorphic', False)
+        if self.if_diffeomorphic:
+            self.integrate = VecInt(config.img_size, nsteps=7)
         self.spatial_trans = SpatialTransformer(config.img_size)
         self.avg_pool = nn.AvgPool2d(3, stride=2, padding=1)
 
@@ -857,8 +859,11 @@ class TransMorph(nn.Module):
         x = self.up3(x, f4)
         x = self.up4(x, f5)
         
-        pos_flow = self.reg_head(x)          # Now this is the stationary velocity field (SVF)
-        flow = self.integrate(pos_flow)      # Integrate to get displacement field (DDF)
+        pos_flow = self.reg_head(x)          # Now this is the stationary velocity field (SVF) if diffeomorphic
+        if self.if_diffeomorphic:
+            flow = self.integrate(pos_flow)      # Integrate to get displacement field (DDF)
+        else:
+            flow = pos_flow
         out = self.spatial_trans(source, flow)
         
         return out, flow, pos_flow

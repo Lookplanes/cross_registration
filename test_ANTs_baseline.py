@@ -51,7 +51,7 @@ def plot_ants_results(moving, fixed, moved_pred, idx, save_dir, metrics_text):
 def main():
     # --- 1. 配置参数 ---
     # 传统方法跑 CPU 就行，不需要显卡，但为了保持加载器一致性保留这部分格式
-    test_data_dir = '/data2/xujr/idr_data/Train_CrossModal/Test/ch1_to_ch0'
+    test_data_dir = '/data2/xujr/idr_data/Train_CrossModal/Test/ch0_to_ch1'
     output_dir = "./results/baseline_ants_results"
 
     # --- 2. 准备数据 ---
@@ -78,31 +78,6 @@ def main():
     
     # 【核心杀手锏记录项】：耗时 Trackers
     eval_time = utils.AverageMeter()
-
-    def compute_zncc(I, J, eps=1e-5):
-        I_mean, J_mean = np.mean(I), np.mean(J)
-        cross = np.sum((I - I_mean) * (J - J_mean))
-        I_var, J_var = np.sum((I - I_mean)**2), np.sum((J - J_mean)**2)
-        return cross / (np.sqrt(I_var * J_var) + eps)
-
-    def compute_nmi(I, J, bins=256):
-        hist_2d, _, _ = np.histogram2d(I.flatten(), J.flatten(), bins=bins)
-        pxy = hist_2d / np.sum(hist_2d)
-        px = np.sum(pxy, axis=1)
-        py = np.sum(pxy, axis=0)
-        px_nz = px[px > 0]
-        py_nz = py[py > 0]
-        pxy_nz = pxy[pxy > 0]
-        hx = -np.sum(px_nz * np.log(px_nz))
-        hy = -np.sum(py_nz * np.log(py_nz))
-        hxy = -np.sum(pxy_nz * np.log(pxy_nz))
-        return (hx + hy) / hxy if hxy > 0 else 0
-
-    def compute_foreground_dice(I, J, thresh=0.01):
-        m_I = I > thresh
-        m_J = J > thresh
-        intersection = np.sum(m_I & m_J)
-        return (2. * intersection) / (np.sum(m_I) + np.sum(m_J) + 1e-8)
 
     for i, data in enumerate(test_loader):
         moving = data[0]  
@@ -143,12 +118,12 @@ def main():
         # =====================================================
         # 计算各种指标
         # =====================================================
-        zncc_pre = compute_zncc(m_np, f_np)
-        zncc_post = compute_zncc(mp_np, f_np)
-        nmi_pre = compute_nmi(m_np, f_np)
-        nmi_post = compute_nmi(mp_np, f_np)
-        dice_pre = compute_foreground_dice(m_np, f_np)
-        dice_post = compute_foreground_dice(mp_np, f_np)
+        zncc_pre = utils.compute_zncc(m_np, f_np)
+        zncc_post = utils.compute_zncc(mp_np, f_np)
+        nmi_pre = utils.compute_nmi(m_np, f_np)
+        nmi_post = utils.compute_nmi(mp_np, f_np)
+        dice_pre = utils.compute_foreground_dice(m_np, f_np)
+        dice_post = utils.compute_foreground_dice(mp_np, f_np)
         
         eval_zncc_pre.update(zncc_pre)
         eval_zncc_post.update(zncc_post)
@@ -166,15 +141,17 @@ def main():
             )
             plot_ants_results(m_np, f_np, mp_np, i, output_dir, metrics_text)
             
-    print(f"\nANTs 推理及评价完成。测试图保存在 {output_dir}")
-    print("\n" + "="*50)
-    print("==== 传统方法 ANTs/SyN (MI) Baseline Final ====")
-    print(f"Cross-modal Mappings - Before Registration: NMI  = {eval_nmi_pre.avg:.4f}, Fore-Dice = {eval_dice_pre.avg:.4f}, ZNCC = {eval_zncc_pre.avg:.4f}")
-    print(f"Cross-modal Mappings - After Registration : NMI  = {eval_nmi_post.avg:.4f}, Fore-Dice = {eval_dice_post.avg:.4f}, ZNCC = {eval_zncc_post.avg:.4f}")
-    
-    # 这个用来写论文，展现深度学习方法对传统方法的速度碾压优势
-    print(f"*** Speed Metrics - Optimization Time per pair: {eval_time.avg:.4f} seconds ***")
-    print("="*50 + "\n")
+    print(f"\nANTs 推理及评价完成。测试图保存在 {output_dir}\n")
+    print("="*80)
+    print("[Method: Traditional ANTs/SyN (MI) Baseline]")
+    print("-" * 80)
+    print("* Cross-modal Metrics (Real C1 vs Real C0):")
+    print(f"  - Pre-Reg  -> NMI: {eval_nmi_pre.avg:.4f}  |  Fore-Dice: {eval_dice_pre.avg:.4f}  |  cross-ZNCC: {eval_zncc_pre.avg:.4f}")
+    print(f"  - Post-Reg -> NMI: {eval_nmi_post.avg:.4f}  |  Fore-Dice: {eval_dice_post.avg:.4f}  |  cross-ZNCC: {eval_zncc_post.avg:.4f}")
+    print("-" * 80)
+    print("* Speed Metrics:")
+    print(f"  - Optimization Time: {eval_time.avg:.4f} s/pair")
+    print("="*80 + "\n")
 
 if __name__ == '__main__':
     main()

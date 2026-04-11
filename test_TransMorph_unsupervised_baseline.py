@@ -84,7 +84,7 @@ def main():
     
     # 路径配置（请根据实际的无监督模型路径修改）
     transmorph_model_path = "/data2/xujr/output_model/0330/TransMorph_unsupervised_ncc_1.0_1.0/experiments/model_best.pth"
-    test_data_dir = '/data2/xujr/idr_data/Train_CrossModal/Test/ch1_to_ch0'
+    test_data_dir = '/data2/xujr/idr_data/Train_CrossModal/Test/ch0_to_ch1'
     output_dir = "./results/baseline_unsupervised_results"
 
     # --- 2. 加载模型 ---
@@ -113,31 +113,6 @@ def main():
     eval_det = utils.AverageMeter()
     eval_dice_pre = utils.AverageMeter()
     eval_dice_post = utils.AverageMeter()
-
-    def compute_zncc(I, J, eps=1e-5):
-        I_mean, J_mean = np.mean(I), np.mean(J)
-        cross = np.sum((I - I_mean) * (J - J_mean))
-        I_var, J_var = np.sum((I - I_mean)**2), np.sum((J - J_mean)**2)
-        return cross / (np.sqrt(I_var * J_var) + eps)
-
-    def compute_nmi(I, J, bins=256):
-        hist_2d, _, _ = np.histogram2d(I.flatten(), J.flatten(), bins=bins)
-        pxy = hist_2d / np.sum(hist_2d)
-        px = np.sum(pxy, axis=1)
-        py = np.sum(pxy, axis=0)
-        px_nz = px[px > 0]
-        py_nz = py[py > 0]
-        pxy_nz = pxy[pxy > 0]
-        hx = -np.sum(px_nz * np.log(px_nz))
-        hy = -np.sum(py_nz * np.log(py_nz))
-        hxy = -np.sum(pxy_nz * np.log(pxy_nz))
-        return (hx + hy) / hxy if hxy > 0 else 0
-
-    def compute_foreground_dice(I, J, thresh=0.01):
-        m_I = I > thresh
-        m_J = J > thresh
-        intersection = np.sum(m_I & m_J)
-        return (2. * intersection) / (np.sum(m_I) + np.sum(m_J) + 1e-8)
 
     with torch.no_grad():
         for i, data in enumerate(test_loader):
@@ -188,12 +163,12 @@ def main():
             mp = to_numpy(moved_pred_real)
             
             # 这里记录原始跨模态间的ZNCC供参考(尽管是无效指标，但用于横向对比)
-            zncc_pre = compute_zncc(m, f)
-            zncc_post = compute_zncc(mp, f)
-            nmi_pre = compute_nmi(m, f)
-            nmi_post = compute_nmi(mp, f)
-            dice_pre = compute_foreground_dice(m, f)
-            dice_post = compute_foreground_dice(mp, f)
+            zncc_pre = utils.compute_zncc(m, f)
+            zncc_post = utils.compute_zncc(mp, f)
+            nmi_pre = utils.compute_nmi(m, f)
+            nmi_post = utils.compute_nmi(mp, f)
+            dice_pre = utils.compute_foreground_dice(m, f)
+            dice_post = utils.compute_foreground_dice(mp, f)
             
             eval_zncc_pre.update(zncc_pre, moving.size(0))
             eval_zncc_post.update(zncc_post, moving.size(0))
@@ -210,17 +185,19 @@ def main():
                 )
                 plot_baseline_results(moving, fixed, moved_pred_real, i, output_dir, metrics_text)
                 
-    print(f"\nBaseline 推理完成。测试图保存在 {output_dir}")
-    print("\n" + "="*50)
-    print("==== Unsupervised TransMorph Baseline Final ====")
-    print(f"Cross-modal Direct - Before Registration: ZNCC = {eval_zncc_pre.avg:.4f}")
-    print(f"Cross-modal Direct - After Registration : ZNCC = {eval_zncc_post.avg:.4f}")
-    print(f"Cross-modal Mappings - Before Registration: NMI  = {eval_nmi_pre.avg:.4f}, Fore-Dice = {eval_dice_pre.avg:.4f}")
-    print(f"Cross-modal Mappings - After Registration : NMI  = {eval_nmi_post.avg:.4f}, Fore-Dice = {eval_dice_post.avg:.4f}")
+    print(f"\nBaseline 推理完成。测试图保存在 {output_dir}\n")
+    print("="*80)
+    print("[Method: Unsupervised TransMorph Baseline]")
+    print("-" * 80)
+    print("* Cross-modal Metrics (Real C1 vs Real C0):")
+    print(f"  - Pre-Reg  -> NMI: {eval_nmi_pre.avg:.4f}  |  Fore-Dice: {eval_dice_pre.avg:.4f}  |  cross-ZNCC: {eval_zncc_pre.avg:.4f}")
+    print(f"  - Post-Reg -> NMI: {eval_nmi_post.avg:.4f}  |  Fore-Dice: {eval_dice_post.avg:.4f}  |  cross-ZNCC: {eval_zncc_post.avg:.4f}")
+    print("-" * 80)
+    print("* Flow Quality Metrics:")
     if eval_epe.count > 0:
-        print(f"Flow Quality Metrics - EPE = {eval_epe.avg:.4f}")
-    print(f"Flow Quality Metrics - Negative Jacobian Ratio (Folding) = {eval_det.avg:.6%}")
-    print("="*50 + "\n")
+        print(f"  - EPE (End Point Error)  : {eval_epe.avg:.4f}")
+    print(f"  - Folding (Negative Jac) : {eval_det.avg:.4%}")
+    print("="*80 + "\n")
 
 if __name__ == '__main__':
     main()

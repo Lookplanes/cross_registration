@@ -46,7 +46,7 @@ def main():
     batch_size = 1
     # Check these paths - matching the training script
     test_dir = '/data2/xujr/idr_data/Train_Supervised_SynthMorph_no_appearance/Test' 
-    model_dir = "/data2/xujr/output_model/0320/TransMorph_supervised_l1_smooth_1_0.05"
+    model_dir = "/data2/xujr/output_model/0409/TransMorph_supervised_l1_smooth_1_1.0"
 
     load_mode = 'best' 
     
@@ -65,6 +65,8 @@ def main():
     '''
     config = CONFIGS_TM['TransMorph']
     config.in_chans = 2 # Fixed + Moving
+    config.if_diffeomorphic = True
+    print('Diffeomorphic integration enabled for inference: {}'.format(config.if_diffeomorphic))
     model = TransMorph.TransMorph(config)
 
     # Load Weights
@@ -93,8 +95,16 @@ def main():
             name = k.replace('module.', '') 
             new_state_dict[name] = v
 
-        model.load_state_dict(new_state_dict)
-        print("Model loaded successfully.")
+        try:
+            model.load_state_dict(new_state_dict)
+            print("Model loaded successfully with strict=True.")
+        except RuntimeError as e:
+            print("Strict checkpoint loading failed. Falling back to strict=False.")
+            print("Reason: {}".format(e))
+            incompat = model.load_state_dict(new_state_dict, strict=False)
+            print("Missing keys: {}".format(incompat.missing_keys))
+            print("Unexpected keys: {}".format(incompat.unexpected_keys))
+            print("Model loaded successfully with strict=False.")
         # if 'state_dict' in checkpoint:
         #     model.load_state_dict(checkpoint['state_dict'])
         # else:

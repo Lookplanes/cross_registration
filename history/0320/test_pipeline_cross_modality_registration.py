@@ -129,9 +129,9 @@ def main():
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
     # 路径配置（请根据实际路径进行修改）
-    pix2pix_model_path = "/data2/xujr/output_model/pix2pix_idr0003_c1Toc0/latest_net_G.pth"
+    pix2pix_model_path = "/data2/xujr/output_model/pix2pix_idr0003_c0Toc1/latest_net_G.pth"
     transmorph_model_path = "/data2/xujr/output_model/0320/TransMorph_supervised_l1_smooth_1_0.05/experiments/model_best.pth"
-    test_data_dir = '/data2/xujr/idr_data/Train_CrossModal/Test/ch1_to_ch0'
+    test_data_dir = '/data2/xujr/idr_data/Train_CrossModal/Test/ch0_to_ch1'
     output_dir = "./results/pipeline_results"
 
     # --- 2. 加载模型 ---

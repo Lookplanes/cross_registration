@@ -3,7 +3,6 @@ import sys
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
-import torch.nn.functional as F
 from torch.utils.data import DataLoader
 
 # 添加当前目录以便引入 TransMorph 相关模块
@@ -59,8 +58,6 @@ def load_transmorph_model(model_path, img_size=(256, 256), device='cuda'):
     config = CONFIGS_TM['TransMorph']
     config.img_size = img_size
     config.in_chans = 2  # Fixed + Moving
-    config.if_diffeomorphic = True
-    print(f"Diffeomorphic integration enabled for pipeline: {config.if_diffeomorphic}")
     model = TransMorph.TransMorph(config)
     
     if not os.path.exists(model_path):
@@ -76,14 +73,14 @@ def load_transmorph_model(model_path, img_size=(256, 256), device='cuda'):
             name = k.replace('module.', '') 
             new_state_dict[name] = v
             
-        model.load_state_dict(new_state_dict, strict=False)
-        print(f"成功加载 TransMorph 模型 (允许缺失新参数): {model_path}")
+        model.load_state_dict(new_state_dict)
+        print(f"成功加载 TransMorph 模型: {model_path}")
         
     model.to(device)
     model.eval()
     return model
 
-def plot_pipeline_results(moving, fixed, fake_moving, moved_pred_fake, moved_pred_real, flow_pred, idx, save_dir, metrics_text):
+def plot_pipeline_results(moving, fixed, fake_moving, moved_pred_fake, moved_pred_real, idx, save_dir, metrics_text):
     """
     保存可视化结果，并计算评价指标排版展示
     """
@@ -95,13 +92,8 @@ def plot_pipeline_results(moving, fixed, fake_moving, moved_pred_fake, moved_pre
     fm = to_numpy(fake_moving)
     mp_fake = to_numpy(moved_pred_fake)
     mp_real = to_numpy(moved_pred_real)
-    flow = flow_pred.detach().cpu().numpy()[0] # (2, H, W)
     
-    # 计算配准前后同一模态 (C0) 之间的差异
-    diff_pre = np.abs(f - fm)
-    diff_post = np.abs(f - mp_fake)
-    
-    fig, axes = plt.subplots(1, 8, figsize=(40, 7))
+    fig, axes = plt.subplots(1, 5, figsize=(25, 7))
     
     plt.suptitle(metrics_text, fontsize=15, fontweight='bold', y=0.98)
 
@@ -125,34 +117,6 @@ def plot_pipeline_results(moving, fixed, fake_moving, moved_pred_fake, moved_pre
     axes[4].set_title('5. Warped Real Moving\n(Real C1 + Flow)', fontsize=14, pad=15)
     axes[4].axis('off')
 
-    im_pre = axes[5].imshow(diff_pre, cmap='hot', vmin=0, vmax=1.0)
-    axes[5].set_title('6. Pre-Reg Diff\n|Fixed - Fake C0|', fontsize=14, pad=15)
-    axes[5].axis('off')
-
-    im_post = axes[6].imshow(diff_post, cmap='hot', vmin=0, vmax=1.0)
-    axes[6].set_title('7. Post-Reg Diff\n|Fixed - Warped Fake C0|', fontsize=14, pad=15)
-    axes[6].axis('off')
-
-    # Draw Deformed Grid
-    step = 10
-    h, w = flow.shape[1], flow.shape[2]
-    grid_x, grid_y = np.meshgrid(np.arange(0, w), np.arange(0, h))
-    map_x = grid_x + flow[1] # x displacement (w)
-    map_y = grid_y + flow[0] # y displacement (h)
-    
-    axes[7].imshow(np.ones((h, w)), cmap='gray', vmin=0, vmax=1) # white background
-    for i in range(0, h, step):
-        axes[7].plot(map_x[i, :], map_y[i, :], color='blue', linewidth=0.5)
-    for j in range(0, w, step):
-        axes[7].plot(map_x[:, j], map_y[:, j], color='blue', linewidth=0.5)
-    axes[7].set_title('8. Deformed Grid\n(Flow)', fontsize=14, pad=15)
-    axes[7].set_aspect('equal')
-    axes[7].invert_yaxis()
-    axes[7].axis('off')
-    # set limits to crop out out-of-bounds lines to match image size
-    axes[7].set_xlim(0, w-1)
-    axes[7].set_ylim(h-1, 0)
-
     plt.tight_layout(rect=[0, 0, 1, 0.85])
     os.makedirs(save_dir, exist_ok=True)
     
@@ -163,17 +127,10 @@ def main():
     # --- 1. 配置参数 ---
     os.environ['CUDA_VISIBLE_DEVICES'] = '1'
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
-    # 前景掩码实验开关
-    use_foreground_mask = True
-    # 可选: 'post_gan' (推荐), 'pre_and_post'
-    mask_strategy = 'post_gan'
-    mask_thresh = 0.01
-    mask_dilate_ks = 5
     
     # 路径配置（请根据实际路径进行修改）
     pix2pix_model_path = "/data2/xujr/output_model/pix2pix_idr0003_c1Toc0/latest_net_G.pth"
-    transmorph_model_path = "/data2/xujr/output_model/0409/TransMorph_supervised_l1_smooth_1_1.0/experiments/model_best.pth"
+    transmorph_model_path = "/data2/xujr/output_model/0320/TransMorph_supervised_l1_smooth_1_0.05/experiments/model_best.pth"
     test_data_dir = '/data2/xujr/idr_data/Train_CrossModal/Test/ch1_to_ch0'
     output_dir = "./results/pipeline_results"
 
@@ -194,10 +151,6 @@ def main():
     
     print("正在加载 TransMorph 模型...")
     transmorph = load_transmorph_model(transmorph_model_path, img_size=(256, 256), device=device)
-    if use_foreground_mask:
-        print(f"启用前景掩码策略: {mask_strategy}, thresh={mask_thresh}, dilate_ks={mask_dilate_ks}")
-    else:
-        print("未启用前景掩码策略")
 
     # --- 3. 准备数据 ---
     # 根据我们重新理清的逻辑：
@@ -232,8 +185,6 @@ def main():
     eval_det = utils.AverageMeter()
     eval_dice_pre = utils.AverageMeter()
     eval_dice_post = utils.AverageMeter()
-    eval_cross_zncc_pre = utils.AverageMeter()
-    eval_cross_zncc_post = utils.AverageMeter()
 
     with torch.no_grad():
         for i, data in enumerate(test_loader):
@@ -242,17 +193,10 @@ def main():
             moving = data[0]  # 未变形的原始图像 (C1)
             fixed = data[1]   # 扰动后的变形图像 (C0) 
 
-            if use_foreground_mask:
-                fg_mask = utils.build_foreground_mask(fixed, thresh=mask_thresh, dilate_ks=mask_dilate_ks)
-            else:
-                fg_mask = torch.ones_like(fixed)
-
             # ===== 图像配准的后向映射核心逻辑 =====
             
             # 步骤 1：使用 pix2pix 将 moving(源模态 C1) 转换为 fake_moving(目标模态 C0外观，但未变形)
             moving_for_G = moving
-            if use_foreground_mask and mask_strategy == 'pre_and_post':
-                moving_for_G = moving_for_G * fg_mask
             if moving_for_G.size(1) == 1:
                 moving_for_G = moving_for_G.repeat(1, 3, 1, 1) # 扩展到 3 通道
             
@@ -264,22 +208,14 @@ def main():
             if fake_moving_for_T.size(1) == 3:
                 fake_moving_for_T = fake_moving_for_T.mean(dim=1, keepdim=True) # 转单通道
 
-            if use_foreground_mask:
-                reg_src = fake_moving_for_T * fg_mask
-                reg_tgt = fixed * fg_mask
-            else:
-                reg_src = fake_moving_for_T
-                reg_tgt = fixed
-
             # 步骤 2：进行配准
             # x_in = torch.cat((source, target), dim=1) -> torch.cat((fake_moving, fixed), dim=1)
-            x_in = torch.cat((reg_src, reg_tgt), dim=1)
+            x_in = torch.cat((fake_moving_for_T, fixed), dim=1)
             output = transmorph(x_in)
             
             # 提取配准结果
             moved_pred_fake = output[0]  # 这是网络内部将 fake_moving (C0) 按照预测流场变形后的图
-            flow_pred = output[1]        # 预测的流场 (位移场, DDF)
-            # output[2] 是 积分前的平稳速度场(SVF)，在这里推理不需要使用
+            flow_pred = output[1]        # 预测的流场 (位移场)
 
             # 步骤 3：将预测得到的流场施加在原本的真 moving(C1) 上
             moved_pred_real = spatial_trans(moving, flow_pred)
@@ -289,8 +225,6 @@ def main():
                 valid_mask = data[3].to(device)
             else:
                 valid_mask = (fixed > 1e-4).float()
-            if use_foreground_mask:
-                valid_mask = valid_mask * fg_mask
                 
             # EPE 计算 (需要存在 GT flow, index 2)
             if len(data) >= 3:
@@ -333,9 +267,6 @@ def main():
             dice_pre = utils.compute_foreground_dice(m, f)
             dice_post = utils.compute_foreground_dice(mp_real, f)
             
-            cross_zncc_pre = utils.compute_zncc(m, f)
-            cross_zncc_post = utils.compute_zncc(mp_real, f)
-            
             # 更新 trackers
             eval_zncc_pre.update(zncc_pre, moving.size(0))
             eval_mse_pre.update(mse_pre, moving.size(0))
@@ -345,35 +276,27 @@ def main():
             eval_nmi_post.update(nmi_post, moving.size(0))
             eval_dice_pre.update(dice_pre, moving.size(0))
             eval_dice_post.update(dice_post, moving.size(0))
-            eval_cross_zncc_pre.update(cross_zncc_pre, moving.size(0))
-            eval_cross_zncc_post.update(cross_zncc_post, moving.size(0))
             
             # 保存可视化结果 (仅前 5 个样本)
-            if i < 10:
+            if i < 5:
                 metrics_text = (
                     f"--- Model Evaluation Metrics ---\n"
                     f"[Intra-modal (Fake C0 vs Fixed C0)] Pre-Reg: ZNCC={zncc_pre:.4f}/MSE={mse_pre:.4f}  |  Post-Reg: ZNCC={zncc_post:.4f}/MSE={mse_post:.4f}\n"
-                    f"[Cross-modal (Real C1 vs Fixed C0)] Pre-Reg: NMI={nmi_pre:.4f}/Dice={dice_pre:.4f}/cross-ZNCC={cross_zncc_pre:.4f}  |  Post-Reg: NMI={nmi_post:.4f}/Dice={dice_post:.4f}/cross-ZNCC={cross_zncc_post:.4f}"
+                    f"[Cross-modal (Real C1 vs Fixed C0)] Pre-Reg: NMI={nmi_pre:.4f}/Dice={dice_pre:.4f}  |  Post-Reg: NMI={nmi_post:.4f}/Dice={dice_post:.4f}"
                 )
-                plot_pipeline_results(moving, fixed, fake_moving_for_T, moved_pred_fake, moved_pred_real, flow_pred, i, output_dir, metrics_text)
+                plot_pipeline_results(moving, fixed, fake_moving_for_T, moved_pred_fake, moved_pred_real, i, output_dir, metrics_text)
                 
-    print(f"\nPipeline 推理完成。测试图保存在 {output_dir}\n")
-    print("="*80)
-    print("[Method: Our Pipeline]")
-    print("-" * 80)
-    print("* Intra-modal Metrics (Fake C0 vs Real C0):")
-    print(f"  - Pre-Reg  -> ZNCC : {eval_zncc_pre.avg:.4f}  |  MSE : {eval_mse_pre.avg:.4f}")
-    print(f"  - Post-Reg -> ZNCC : {eval_zncc_post.avg:.4f}  |  MSE : {eval_mse_post.avg:.4f}")
-    print("-" * 80)
-    print("* Cross-modal Metrics (Real C1 vs Real C0):")
-    print(f"  - Pre-Reg  -> NMI  : {eval_nmi_pre.avg:.4f}  |  Fore-Dice : {eval_dice_pre.avg:.4f}  |  cross-ZNCC : {eval_cross_zncc_pre.avg:.4f}")
-    print(f"  - Post-Reg -> NMI  : {eval_nmi_post.avg:.4f}  |  Fore-Dice : {eval_dice_post.avg:.4f}  |  cross-ZNCC : {eval_cross_zncc_post.avg:.4f}")
-    print("-" * 80)
-    print("* Flow Quality Metrics:")
+    print(f"\nPipeline 推理完成。测试图保存在 {output_dir}")
+    print("\n" + "="*50)
+    print("==== Final ====")
+    print(f"Intra-modal (Fake C0 vs Fixed C0) - Before Registration: ZNCC = {eval_zncc_pre.avg:.4f}, MSE = {eval_mse_pre.avg:.4f}")
+    print(f"Intra-modal (Fake C0 vs Fixed C0) - After Registration : ZNCC = {eval_zncc_post.avg:.4f}, MSE = {eval_mse_post.avg:.4f}")
+    print(f"Cross-modal (Real C1 vs Fixed C0) - Before Registration: NMI  = {eval_nmi_pre.avg:.4f}, Fore-Dice = {eval_dice_pre.avg:.4f}")
+    print(f"Cross-modal (Real C1 vs Fixed C0) - After Registration : NMI  = {eval_nmi_post.avg:.4f}, Fore-Dice = {eval_dice_post.avg:.4f}")
     if eval_epe.count > 0:
-        print(f"  - EPE (End Point Error)  : {eval_epe.avg:.4f}")
-    print(f"  - Folding (Negative Jac) : {eval_det.avg:.4%}")
-    print("="*80 + "\n")
+        print(f"Flow Quality Metrics - EPE = {eval_epe.avg:.4f}")
+    print(f"Flow Quality Metrics - Negative Jacobian Ratio (Folding) = {eval_det.avg:.6%}")
+    print("="*50 + "\n")
 
 if __name__ == '__main__':
     main()

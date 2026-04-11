@@ -373,3 +373,61 @@ def uceloss(errors, uncert, n_bins=15, outlier=0.0, range=None):
     prop_in_bin = torch.tensor(prop_in_bin_list, device=device)
 
     return uce, err_in_bin, avg_uncert_in_bin, prop_in_bin
+# ==========================================
+# Metric & Mask Tool Functions
+# ==========================================
+
+def build_foreground_mask(img, thresh=0.01, dilate_ks=5):
+    """
+    Generate a foreground mask from a target image, optionally dilated.
+    img: torch.Tensor
+    """
+    mask = (img > thresh).float()
+    if dilate_ks > 1:
+        pad = dilate_ks // 2
+        mask = F.max_pool2d(mask, kernel_size=dilate_ks, stride=1, padding=pad)
+    return mask
+
+def compute_zncc(I, J, eps=1e-5):
+    """Compute Zero-mean Normalized Cross-Correlation (ZNCC)"""
+    I_mean, J_mean = np.mean(I), np.mean(J)
+    cross = np.sum((I - I_mean) * (J - J_mean))
+    I_var, J_var = np.sum((I - I_mean)**2), np.sum((J - J_mean)**2)
+    return cross / (np.sqrt(I_var * J_var) + eps)
+    
+def compute_mse(I, J):
+    """Compute Mean Squared Error"""
+    return np.mean((I - J) ** 2)
+
+def compute_nmi(I, J, bins=256):
+    """Compute Normalized Mutual Information (NMI)"""
+    hist_2d, _, _ = np.histogram2d(I.flatten(), J.flatten(), bins=bins)
+    pxy = hist_2d / np.sum(hist_2d)
+    px = np.sum(pxy, axis=1)
+    py = np.sum(pxy, axis=0)
+    
+    px_nz = px[px > 0]
+    py_nz = py[py > 0]
+    pxy_nz = pxy[pxy > 0]
+    
+    hx = -np.sum(px_nz * np.log(px_nz))
+    hy = -np.sum(py_nz * np.log(py_nz))
+    hxy = -np.sum(pxy_nz * np.log(pxy_nz))
+    
+    return (hx + hy) / hxy if hxy > 0 else 0
+
+def compute_foreground_dice(I, J, thresh=0.01, dilate_ks=5):
+    """
+    Foreground Overlap DICE calculation, enhanced with morphological dilation
+    to fill in internal holes and represent true tissue overlap, mirroring fg_mask.
+    """
+    from scipy.ndimage import maximum_filter
+    m_I = I > thresh
+    m_J = J > thresh
+    
+    if dilate_ks > 1:
+        m_I = maximum_filter(m_I, size=dilate_ks)
+        m_J = maximum_filter(m_J, size=dilate_ks)
+        
+    intersection = np.sum(m_I & m_J)
+    return (2. * intersection) / (np.sum(m_I) + np.sum(m_J) + 1e-8)

@@ -1,6 +1,7 @@
 from torch.utils.tensorboard import SummaryWriter
 import os, utils, glob, losses
 import sys
+import random
 from torch.utils.data import DataLoader
 from data import datasets, trans
 import numpy as np
@@ -43,6 +44,14 @@ class Logger(object):
         # self.terminal.flush()
         pass
 
+def set_seed(seed=42):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
 def main():
     # os.environ['CUDA_VISIBLE_DEVICES'] = '3' # let the bash script handle it
     
@@ -55,8 +64,11 @@ def main():
     val_interval = 1 # Frequency to run validation and save model
     
     is_supervised = True
+    if_diffeomorphic = True
+    seed = 42
+    set_seed(seed)
     
-    save_dir = '/data2/xujr/output_model/0406/'
+    save_dir = '/data2/xujr/output_model/0409/'
     if is_supervised:
         save_dir = save_dir + 'TransMorph_supervised_l1_smooth_{}_{}/'.format(weights[0], weights[1])
     else:
@@ -70,13 +82,15 @@ def main():
     lr = 0.0001 # learning rate
     epoch_start = 0
     max_epoch = 400 #max traning epoch
-    cont_training = True # 改为 True，从崩溃前的模型断点续传
+    cont_training = False # 改为 True，从崩溃前的模型断点续传
 
     '''
     Initialize model
     '''
     config = CONFIGS_TM['TransMorph']
     config.in_chans = 2 # Fixed image (1 channel) + Moving image (1 channel)
+    config.if_diffeomorphic = if_diffeomorphic
+    print('Diffeomorphic integration enabled: {}'.format(config.if_diffeomorphic))
     model = TransMorph.TransMorph(config)
     
     if torch.cuda.device_count() > 1:
@@ -121,9 +135,8 @@ def main():
                                              ])
         train_set = datasets.RaFDDataset(glob.glob(train_dir + '*.pkl'), transforms=train_composed)
         val_set = datasets.RaFDInferDataset(glob.glob(val_dir + '*.pkl'), transforms=None)
-    
-    train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=0, pin_memory=True)
-    val_loader = DataLoader(val_set, batch_size=batch_size, shuffle=False, num_workers=0, pin_memory=True)
+        train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=2, pin_memory=True)
+        val_loader = DataLoader(val_set, batch_size=50, shuffle=False, num_workers=2, pin_memory=True)
 
     optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=0, amsgrad=True)
     
@@ -172,14 +185,34 @@ def main():
     Resume from snapshot
     '''
     if cont_training:
-        checkpoint_path = save_dir + 'experiments/latest_checkpoint.pth'
+        checkpoint_path = os.path.join(save_dir, 'experiments', 'latest_checkpoint.pth')
         if os.path.exists(checkpoint_path):
             print("Loading latest info from: {}".format(checkpoint_path))
             # weights_only=False is required for PyTorch >= 2.6 when loading complex objects (like numpy scalars)
             checkpoint = torch.load(checkpoint_path, weights_only=False)
-            
-            model.load_state_dict(checkpoint['state_dict'])
-            optimizer.load_state_dict(checkpoint['optimizer'])
+
+            ckpt_state_dict = checkpoint['state_dict']
+            try:
+                model.load_state_dict(ckpt_state_dict)
+                print("Checkpoint loaded in strict mode.")
+            except RuntimeError as e:
+                print("Strict checkpoint loading failed. Falling back to strict=False.")
+                print("Reason: {}".format(e))
+                incompat = model.load_state_dict(ckpt_state_dict, strict=False)
+                if len(incompat.missing_keys) > 0:
+                    print("Missing keys (expected with architecture updates):")
+                    for k in incompat.missing_keys:
+                        print("  - {}".format(k))
+                if len(incompat.unexpected_keys) > 0:
+                    print("Unexpected keys in checkpoint:")
+                    for k in incompat.unexpected_keys:
+                        print("  - {}".format(k))
+
+            if 'optimizer' in checkpoint:
+                try:
+                    optimizer.load_state_dict(checkpoint['optimizer'])
+                except ValueError as e:
+                    print("Optimizer state loading skipped due to mismatch: {}".format(e))
             epoch_start = checkpoint['epoch']
             if 'best_epe' in checkpoint:
                 best_epe = checkpoint['best_epe']
@@ -218,8 +251,10 @@ def main():
             output = model(x_in)
             
             # Output: [warped_image, flow, pos_flow]
+            if not isinstance(output, (list, tuple)) or len(output) < 2:
+                raise ValueError('Model output format is invalid. Expected at least [warped_image, flow].')
             pred_flow = output[1]
-            pos_flow = output[2]  # Velocity field (SVF)
+            pos_flow = output[2] if len(output) > 2 else pred_flow  # Velocity field (SVF), fallback for compatibility
             
             if is_supervised:
                 if len(data) < 3:
@@ -279,6 +314,9 @@ def main():
                     
                     x_in = torch.cat((x, y), dim=1)
                     output = model(x_in)
+
+                    if not isinstance(output, (list, tuple)) or len(output) < 2:
+                        raise ValueError('Model output format is invalid. Expected at least [warped_image, flow].')
                     
                     pred_img = output[0]
                     pred_flow = output[1]  # DDF
@@ -364,7 +402,7 @@ def main():
                 }, save_dir=save_dir + 'experiments/', filename=f'checkpoint_epoch_{epoch + 1}.pth')
             
 def save_checkpoint(state, save_dir='models', filename='checkpoint.pth.tar'):
-    torch.save(state, save_dir + filename)
+    torch.save(state, os.path.join(save_dir, filename))
 
 if __name__ == '__main__':
     main()

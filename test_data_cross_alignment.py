@@ -19,7 +19,7 @@ from models.TransMorph import SpatialTransformer
 import utils
 
 from data.datasets import SingleModalityPairedDataset
-from pipeline_cross_modality_registration import load_pix2pix_generator
+from test_pipeline_cross_modality_registration import load_pix2pix_generator
 
 def ncc_loss(I, J, eps=1e-5):
     # Compute zero mean normalized cross correlation (ZNCC)
