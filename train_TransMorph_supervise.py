@@ -53,11 +53,16 @@ def set_seed(seed=42):
     torch.backends.cudnn.benchmark = False
 
 def main():
-    # os.environ['CUDA_VISIBLE_DEVICES'] = '3' # let the bash script handle it
+    # os.environ['CUDA_VISIBLE_DEVICES'] = '0,1'
     
     batch_size = 64
-    train_dir = '/data2/xujr/idr_data/Train_Supervised_SynthMorph/Train'
-    val_dir = '/data2/xujr/idr_data/Train_Supervised_SynthMorph/Val'
+    # train_dir = '/data2/xujr/idr_data/Train_Supervised_SynthMorph/Train'
+    # val_dir = '/data2/xujr/idr_data/Train_Supervised_SynthMorph/Val'
+
+    # Train_Supervised_SynthMorph_ablation_no_appearance
+    train_dir = '/data2/xujr/idr_data/Aablation/Train_Supervised_SynthMorph_ablation_no_appearance/Train/'
+    val_dir = '/data2/xujr/idr_data/Aablation/Train_Supervised_SynthMorph_ablation_no_appearance/Test/'
+
 
     weights = [1, 1.0] 
     print_freq = 10
@@ -68,11 +73,13 @@ def main():
     seed = 42
     set_seed(seed)
     
-    save_dir = '/data2/xujr/output_model/0409/'
-    if is_supervised:
-        save_dir = save_dir + 'TransMorph_supervised_l1_smooth_{}_{}/'.format(weights[0], weights[1])
-    else:
-        save_dir = save_dir + 'TransMorph_ssim_{}_{}/'.format(weights[0], weights[1])
+    save_dir = '/data2/xujr/output_model/Aablation/'
+    # if is_supervised:
+    #     save_dir = save_dir + 'TransMorph_supervised_l1_smooth_{}_{}/'.format(weights[0], weights[1])
+    # else:
+    #     save_dir = save_dir + 'TransMorph_ssim_{}_{}/'.format(weights[0], weights[1])
+
+    save_dir = save_dir + 'Supervised_ablation_no_appearance/' 
 
     if not os.path.exists(save_dir + 'experiments/'):
         os.makedirs(save_dir + 'experiments/')

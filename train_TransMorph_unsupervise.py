@@ -31,13 +31,14 @@ class Logger(object):
         pass
 
 def main():
-    # os.environ['CUDA_VISIBLE_DEVICES'] = '3' # let the bash script handle it
+    os.environ['CUDA_VISIBLE_DEVICES'] = '4,5' # let the bash script handle it
     
     batch_size = 64
 
     dir_pth = '/data2/xujr/idr_data/Train_CrossModal'
 
-    train_dir = os.path.join(dir_pth, 'Train')
+    # train_dir = os.path.join(dir_pth, 'Train')
+    train_dir = '/data2/xujr/idr_data/Train_CrossModal_unsup_full'
     val_dir = os.path.join(dir_pth, 'Val')
     # train_dir = '/data2/xujr/idr_data/Train_CrossModal/Train'
     # val_dir = '/data2/xujr/idr_data/Train_CrossModal/Val'
@@ -48,7 +49,7 @@ def main():
     
     is_supervised = False
     
-    save_dir = '/data2/xujr/output_model/0330/'
+    save_dir = '/data2/xujr/output_model/0427/'
     if is_supervised:
         save_dir = save_dir + 'TransMorph_supervised_l1_smooth_{}_{}/'.format(weights[0], weights[1])
     else:

@@ -431,3 +431,63 @@ def compute_foreground_dice(I, J, thresh=0.01, dilate_ks=5):
         
     intersection = np.sum(m_I & m_J)
     return (2. * intersection) / (np.sum(m_I) + np.sum(m_J) + 1e-8)
+
+
+class TemplateMatchTool:
+    """Sliding-window template matching for coarse localization."""
+
+    @staticmethod
+    def zncc_map(image, template, eps=1e-6, stride=1):
+        """
+        Compute ZNCC map between image and template with a sliding window.
+        Returns a (H - h + 1, W - w + 1) score map sampled by stride.
+        """
+        if image.ndim != 2 or template.ndim != 2:
+            raise ValueError("Only 2D arrays are supported for coarse matching.")
+        if stride < 1:
+            raise ValueError("stride must be >= 1")
+
+        image = image.astype(np.float32, copy=False)
+        template = template.astype(np.float32, copy=False)
+        th, tw = template.shape
+        H, W = image.shape
+        if th > H or tw > W:
+            raise ValueError("template must be smaller than image.")
+
+        windows = np.lib.stride_tricks.sliding_window_view(image, (th, tw))
+        if stride > 1:
+            windows = windows[::stride, ::stride]
+
+        t_mean = template.mean()
+        t_zero = template - t_mean
+        t_norm = np.sqrt(np.sum(t_zero * t_zero)) + eps
+
+        w_mean = windows.mean(axis=(2, 3), keepdims=True)
+        w_zero = windows - w_mean
+        w_norm = np.sqrt(np.sum(w_zero * w_zero, axis=(2, 3))) + eps
+
+        numer = np.sum(w_zero * t_zero, axis=(2, 3))
+        zncc = numer / (w_norm * t_norm)
+        return zncc
+
+    @staticmethod
+    def find_best_match(image, template, eps=1e-6, stride=1, return_map=False):
+        """
+        Find the best match (top-left) location in image for the template.
+        Returns ((y, x), score) and optionally the score map.
+        """
+        score_map = TemplateMatchTool.zncc_map(
+            image, template, eps=eps, stride=stride
+        )
+        max_idx = np.unravel_index(np.argmax(score_map), score_map.shape)
+        y = int(max_idx[0] * stride)
+        x = int(max_idx[1] * stride)
+        score = float(score_map[max_idx])
+        if return_map:
+            return (y, x), score, score_map
+        return (y, x), score
+
+
+def crop_tensor_2d(tensor_4d, y0, x0, h, w):
+    """Crop a 4D tensor (B, C, H, W) by top-left and size."""
+    return tensor_4d[:, :, y0:y0 + h, x0:x0 + w]

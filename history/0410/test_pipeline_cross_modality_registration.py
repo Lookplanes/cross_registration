@@ -5,12 +5,12 @@ import numpy as np
 import matplotlib.pyplot as plt
 from torch.utils.data import DataLoader
 
-# 添加当前目录以便引入 TransMorph 相关模块
 current_dir = os.path.dirname(os.path.abspath(__file__))
-sys.path.append(current_dir)
+project_root = os.path.abspath(os.path.join(current_dir, '..', '..'))
+sys.path.append(project_root)
 
 # 将 pix2pix 的路径加入环境变量以便导入
-pix2pix_dir = os.path.join(current_dir, 'pytorch-CycleGAN-and-pix2pix')
+pix2pix_dir = os.path.join(project_root, 'pytorch-CycleGAN-and-pix2pix')
 sys.path.append(pix2pix_dir)
 
 # 引入 TransMorph

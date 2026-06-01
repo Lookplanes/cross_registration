@@ -5,6 +5,32 @@ from .data_utils import pkload
 import matplotlib.pyplot as plt
 
 import numpy as np
+import random
+
+
+def _apply_seeded_subset(pairs, sample_count=None, sample_seed=0):
+    """Select a stable random subset from already-sorted pairs.
+
+    Args:
+        pairs: list of pair dicts.
+        sample_count: number of samples to keep. None means keep all.
+        sample_seed: seed controlling subset choice.
+    """
+    if sample_count is None:
+        return pairs
+
+    sample_count = int(sample_count)
+    if sample_count <= 0:
+        return []
+
+    total = len(pairs)
+    if sample_count >= total:
+        return pairs
+
+    rng = random.Random(int(sample_seed))
+    chosen = set(rng.sample(range(total), sample_count))
+    # Keep original sorted order for readability and reproducibility.
+    return [p for idx, p in enumerate(pairs) if idx in chosen]
 
 
 class RaFDDataset(Dataset):
@@ -184,12 +210,21 @@ class MultiModalityPairedDataset(Dataset):
     Multi-modality dataset for 2D intra-modality registration.
     Expects subfolders containing 'moving', 'fixed', and 'gt_flow' (optional).
     """
-    def __init__(self, root_dir: str, img_size: tuple[int, int] | None = None, transforms=None):
+    def __init__(
+        self,
+        root_dir: str,
+        img_size: tuple[int, int] | None = None,
+        transforms=None,
+        selected_names: list[str] | None = None,
+        sample_count: int | None = None,
+        sample_seed: int = 0,
+    ):
         super().__init__()
         self.root_dir = root_dir
         self.img_size = img_size
         self.transforms = transforms
         self.pairs = []
+        selected_name_set = set(selected_names) if selected_names else None
 
         # 遍历根目录下的所有的子文件夹 (例如 Modality_X, Modality_Y)
         for modality_folder in os.listdir(root_dir):
@@ -209,6 +244,8 @@ class MultiModalityPairedDataset(Dataset):
 
                 for f in moving_files:
                     if f in fixed_files:
+                        if selected_name_set is not None and f not in selected_name_set:
+                            continue
                         flow_path = None
                         if os.path.isdir(flow_dir):
                             stem = os.path.splitext(f)[0]
@@ -228,6 +265,10 @@ class MultiModalityPairedDataset(Dataset):
                             'flow': flow_path,
                             'mask': mask_path
                         })
+
+        # Stable ordering for reproducible sampling across runs/baselines.
+        self.pairs.sort(key=lambda p: (p['moving'], p['fixed']))
+        self.pairs = _apply_seeded_subset(self.pairs, sample_count=sample_count, sample_seed=sample_seed)
 
         if len(self.pairs) == 0:
             print(f"Warning: No paired images found under subdirectories of {self.root_dir}")
@@ -319,12 +360,23 @@ class SingleModalityPairedDataset(MultiModalityPairedDataset):
     重写继承 MultiModalityPairedDataset，使其仅读取单个特定的目录。
     避免原代码中会遍历所有子目录的问题。
     """
-    def __init__(self, target_dir: str, moving_folder: str = 'moving', fixed_folder: str = 'fixed', img_size: tuple = None, transforms=None):
+    def __init__(
+        self,
+        target_dir: str,
+        moving_folder: str = 'moving',
+        fixed_folder: str = 'fixed',
+        img_size: tuple = None,
+        transforms=None,
+        selected_names: list[str] | None = None,
+        sample_count: int | None = None,
+        sample_seed: int = 0,
+    ):
         torch.utils.data.Dataset.__init__(self)  # 跳过父类的 __init__
         self.root_dir = target_dir
         self.img_size = img_size
         self.transforms = transforms
         self.pairs = []
+        selected_name_set = set(selected_names) if selected_names else None
         
         # 直接读取当前指定的子目录下的 moving 和 fixed
         moving_dir = os.path.join(target_dir, moving_folder)
@@ -339,6 +391,8 @@ class SingleModalityPairedDataset(MultiModalityPairedDataset):
             
             for f in moving_files:
                 if f in fixed_files:
+                    if selected_name_set is not None and f not in selected_name_set:
+                        continue
                     flow_path = None
                     if os.path.isdir(flow_dir):
                         stem = os.path.splitext(f)[0]
@@ -358,3 +412,7 @@ class SingleModalityPairedDataset(MultiModalityPairedDataset):
                         'flow': flow_path,
                         'mask': mask_path
                     })
+
+        # Stable ordering for reproducible sampling across runs/baselines.
+        self.pairs.sort(key=lambda p: (p['moving'], p['fixed']))
+        self.pairs = _apply_seeded_subset(self.pairs, sample_count=sample_count, sample_seed=sample_seed)
