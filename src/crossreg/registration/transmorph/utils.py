@@ -1,0 +1,511 @@
+import math
+import numpy as np
+import torch.nn.functional as F
+import torch
+from torch import nn
+import pystrum.pynd.ndutils as nd
+from scipy.ndimage import gaussian_filter
+
+class AverageMeter(object):
+    """Computes and stores the average and current value"""
+    def __init__(self):
+        self.reset()
+
+    def reset(self):
+        self.val = 0
+        self.avg = 0
+        self.sum = 0
+        self.count = 0
+        self.vals = []
+        self.std = 0
+
+    def update(self, val, n=1):
+        self.val = val
+        self.sum += val * n
+        self.count += n
+        self.avg = self.sum / self.count
+        self.vals.append(val)
+        self.std = np.std(self.vals)
+
+
+def pad_image(img, target_size):
+    rows_to_pad = max(target_size[0] - img.shape[2], 0)
+    cols_to_pad = max(target_size[1] - img.shape[3], 0)
+    slcs_to_pad = max(target_size[2] - img.shape[4], 0)
+    padded_img = F.pad(img, (0, slcs_to_pad, 0, cols_to_pad, 0, rows_to_pad), "constant", 0)
+    return padded_img
+
+class SpatialTransformer(nn.Module):
+    """
+    N-D Spatial Transformer
+    """
+
+    def __init__(self, size, mode='bilinear'):
+        super().__init__()
+
+        self.mode = mode
+
+        # create sampling grid
+        vectors = [torch.arange(0, s) for s in size]
+        grids = torch.meshgrid(vectors)
+        grid = torch.stack(grids)
+        grid = torch.unsqueeze(grid, 0)
+        grid = grid.type(torch.FloatTensor)
+
+        # registering the grid as a buffer cleanly moves it to the GPU, but it also
+        # adds it to the state dict. this is annoying since everything in the state dict
+        # is included when saving weights to disk, so the model files are way bigger
+        # than they need to be. so far, there does not appear to be an elegant solution.
+        # see: https://discuss.pytorch.org/t/how-to-register-buffer-without-polluting-state-dict
+        self.register_buffer('grid', grid)
+
+    def forward(self, src, flow):
+        # new locations
+        new_locs = self.grid + flow
+        shape = flow.shape[2:]
+
+        # need to normalize grid values to [-1, 1] for resampler
+        for i in range(len(shape)):
+            new_locs[:, i, ...] = 2 * (new_locs[:, i, ...] / (shape[i] - 1) - 0.5)
+
+        # move channels dim to last position
+        # also not sure why, but the channels need to be reversed
+        if len(shape) == 2:
+            new_locs = new_locs.permute(0, 2, 3, 1)
+            new_locs = new_locs[..., [1, 0]]
+        elif len(shape) == 3:
+            new_locs = new_locs.permute(0, 2, 3, 4, 1)
+            new_locs = new_locs[..., [2, 1, 0]]
+
+        return F.grid_sample(src, new_locs, align_corners=True, mode=self.mode)
+
+class register_model(nn.Module):
+    def __init__(self, img_size=(64, 256, 256), mode='bilinear'):
+        super(register_model, self).__init__()
+        self.spatial_trans = SpatialTransformer(img_size, mode)
+
+    def forward(self, x):
+        device = self.spatial_trans.grid.device
+        img = x[0].to(device)
+        flow = x[1].to(device)
+        out = self.spatial_trans(img, flow)
+        return out
+
+
+def dice_val(y_pred, y_true, num_clus):
+    y_pred = nn.functional.one_hot(y_pred, num_classes=num_clus)
+    y_pred = torch.squeeze(y_pred, 1)
+    y_pred = y_pred.permute(0, 4, 1, 2, 3).contiguous()
+    y_true = nn.functional.one_hot(y_true, num_classes=num_clus)
+    y_true = torch.squeeze(y_true, 1)
+    y_true = y_true.permute(0, 4, 1, 2, 3).contiguous()
+    intersection = y_pred * y_true
+    intersection = intersection.sum(dim=[2, 3, 4])
+    union = y_pred.sum(dim=[2, 3, 4]) + y_true.sum(dim=[2, 3, 4])
+    dice = (2. * intersection) / (union + 1e-5)
+    return dice
+
+
+def dice_val_2d(y_pred, y_true, num_clus):
+    """
+    Compute Dice Coefficient for 2D semantic segmentation maps/masks.
+    Args:
+        y_pred: (B, 1, H, W) integer tensor of predicted labels
+        y_true: (B, 1, H, W) integer tensor of ground truth labels
+        num_clus: number of classes
+    Returns:
+        dice: (B, num_clus) tensor
+    """
+    # Convert to one-hot: (B, H, W, num_classes)
+    y_pred = nn.functional.one_hot(y_pred.long(), num_classes=num_clus)
+    # Squeeze channel dim if it exists (usually B,1,H,W -> B,H,W)
+    if y_pred.dim() == 5:
+        y_pred = torch.squeeze(y_pred, 1)
+
+    # Permute to (B, num_classes, H, W)
+    y_pred = y_pred.permute(0, 3, 1, 2).contiguous()
+
+    y_true = nn.functional.one_hot(y_true.long(), num_classes=num_clus)
+    if y_true.dim() == 5:
+        y_true = torch.squeeze(y_true, 1)
+    y_true = y_true.permute(0, 3, 1, 2).contiguous()
+
+    intersection = y_pred * y_true
+    # Sum over spatial dims (H, W)
+    intersection = intersection.sum(dim=[2, 3])
+    union = y_pred.sum(dim=[2, 3]) + y_true.sum(dim=[2, 3])
+    dice = (2. * intersection) / (union + 1e-5)
+    return dice
+
+
+def jacobian_determinant_vxm(disp):
+    """
+    jacobian determinant of a displacement field.
+    NB: to compute the spatial gradients, we use np.gradient.
+    PERFECT for 2D or 3D
+    Args:
+        disp: 2D or 3D displacement field of size [*vol_shape, nb_dims],
+              where vol_shape is of len nb_dims
+    Returns:
+        jacobian determinant (scalar)
+    """
+
+    # check inputs
+    volshape = disp.shape[:-1]
+    nb_dims = len(volshape)
+    assert len(volshape) in (2, 3), 'flow must be 2D or 3D'
+
+    # compute grid
+    grid_lst = nd.volsize2ndgrid(volshape)
+    grid = np.stack(grid_lst, len(volshape))
+
+    # compute gradients
+    J = np.gradient(disp + grid)
+
+    # 3D flow
+    if nb_dims == 3:
+        dx = J[0]
+        dy = J[1]
+        dz = J[2]
+
+        # compute jacobian components
+        Jdet0 = dx[..., 0] * (dy[..., 1] * dz[..., 2] - dy[..., 2] * dz[..., 1])
+        Jdet1 = dx[..., 1] * (dy[..., 0] * dz[..., 2] - dy[..., 2] * dz[..., 0])
+        Jdet2 = dx[..., 2] * (dy[..., 0] * dz[..., 1] - dy[..., 1] * dz[..., 0])
+
+        return Jdet0 - Jdet1 + Jdet2
+
+    else:
+        dfdx = J[0]
+        dfdy = J[1]
+
+        return dfdx[..., 0] * dfdy[..., 1] - dfdy[..., 0] * dfdx[..., 1]
+
+import re
+def process_label():
+    # process labeling information for FreeSurfer
+    seg_table = [0, 2, 3, 4, 5, 7, 8, 10, 11, 12, 13, 14, 15, 16, 17, 18, 24, 26,
+                          28, 30, 31, 41, 42, 43, 44, 46, 47, 49, 50, 51, 52, 53, 54, 58, 60, 62,
+                          63, 72, 77, 80, 85, 251, 252, 253, 254, 255]
+
+
+    file1 = open('label_info.txt', 'r')
+    Lines = file1.readlines()
+    dict = {}
+    seg_i = 0
+    seg_look_up = []
+    for seg_label in seg_table:
+        for line in Lines:
+            line = re.sub(' +', ' ',line).split(' ')
+            try:
+                int(line[0])
+            except:
+                continue
+            if int(line[0]) == seg_label:
+                seg_look_up.append([seg_i, int(line[0]), line[1]])
+                dict[seg_i] = line[1]
+        seg_i += 1
+    return dict
+
+
+def write2csv(line, name):
+    with open(name+'.csv', 'a') as file:
+        file.write(line)
+        file.write('\n')
+
+
+def dice_val_substruct(y_pred, y_true, std_idx):
+    with torch.no_grad():
+        y_pred = nn.functional.one_hot(y_pred, num_classes=46)
+        y_pred = torch.squeeze(y_pred, 1)
+        y_pred = y_pred.permute(0, 4, 1, 2, 3).contiguous()
+        y_true = nn.functional.one_hot(y_true, num_classes=46)
+        y_true = torch.squeeze(y_true, 1)
+        y_true = y_true.permute(0, 4, 1, 2, 3).contiguous()
+    y_pred = y_pred.detach().cpu().numpy()
+    y_true = y_true.detach().cpu().numpy()
+
+    line = 'p_{}'.format(std_idx)
+    for i in range(46):
+        pred_clus = y_pred[0, i, ...]
+        true_clus = y_true[0, i, ...]
+        intersection = pred_clus * true_clus
+        intersection = intersection.sum()
+        union = pred_clus.sum() + true_clus.sum()
+        dsc = (2.*intersection) / (union + 1e-5)
+        line = line+','+str(dsc)
+    return line
+
+
+def dice(y_pred, y_true, ):
+    intersection = y_pred * y_true
+    intersection = np.sum(intersection)
+    union = np.sum(y_pred) + np.sum(y_true)
+    dsc = (2.*intersection) / (union + 1e-5)
+    return dsc
+
+
+def smooth_seg(binary_img, sigma=1.5, thresh=0.4):
+    binary_img = gaussian_filter(binary_img.astype(np.float32()), sigma=sigma)
+    binary_img = binary_img > thresh
+    return binary_img
+
+
+def get_mc_preds(net, inputs, mc_iter: int = 25):
+    """Convenience fn. for MC integration for uncertainty estimation.
+    Args:
+        net: DIP model (can be standard, MFVI or MCDropout)
+        inputs: input to net
+        mc_iter: number of MC samples
+        post_processor: process output of net before computing loss (e.g. downsampler in SR)
+        mask: multiply output and target by mask before computing loss (for inpainting)
+    """
+    img_list = []
+    flow_list = []
+    with torch.no_grad():
+        for _ in range(mc_iter):
+            img, flow = net(inputs)
+            img_list.append(img)
+            flow_list.append(flow)
+    return img_list, flow_list
+
+
+def calc_uncert(tar, img_list):
+    sqr_diffs = []
+    for i in range(len(img_list)):
+        sqr_diff = (img_list[i] - tar)**2
+        sqr_diffs.append(sqr_diff)
+    uncert = torch.mean(torch.cat(sqr_diffs, dim=0)[:], dim=0, keepdim=True)
+    return uncert
+
+
+def calc_segs(seg, flows):
+    segs = []
+    reg_model = register_model((160, 192, 224), 'nearest')
+    reg_model.cuda()
+    for flow in flows:
+        def_seg = reg_model([seg.cuda().float(), flow.cuda()])
+        def_seg = def_seg.detach().cpu().numpy()[0, 0, :, :, :]
+        segs.append(def_seg)
+    return segs
+
+
+def calc_error(tar, img_list):
+    sqr_diffs = []
+    for i in range(len(img_list)):
+        sqr_diff = (img_list[i] - tar)**2
+        sqr_diffs.append(sqr_diff)
+    uncert = torch.mean(torch.cat(sqr_diffs, dim=0)[:], dim=0, keepdim=True)
+    return uncert
+
+
+def get_mc_preds_w_errors(net, inputs, target, mc_iter: int = 25):
+    """Convenience fn. for MC integration for uncertainty estimation.
+    Args:
+        net: DIP model (can be standard, MFVI or MCDropout)
+        inputs: input to net
+        mc_iter: number of MC samples
+        post_processor: process output of net before computing loss (e.g. downsampler in SR)
+        mask: multiply output and target by mask before computing loss (for inpainting)
+    """
+    img_list = []
+    flow_list = []
+    MSE = nn.MSELoss()
+    err = []
+    with torch.no_grad():
+        for _ in range(mc_iter):
+            img, flow = net(inputs)
+            img_list.append(img)
+            flow_list.append(flow)
+            err.append(MSE(img, target).item())
+    return img_list, flow_list, err
+
+
+def get_diff_mc_preds(net, inputs, mc_iter: int = 25):
+    """Convenience fn. for MC integration for uncertainty estimation.
+    Args:
+        net: DIP model (can be standard, MFVI or MCDropout)
+        inputs: input to net
+        mc_iter: number of MC samples
+        post_processor: process output of net before computing loss (e.g. downsampler in SR)
+        mask: multiply output and target by mask before computing loss (for inpainting)
+    """
+    img_list = []
+    flow_list = []
+    disp_list = []
+    with torch.no_grad():
+        for _ in range(mc_iter):
+            img, _, flow, disp = net(inputs)
+            img_list.append(img)
+            flow_list.append(flow)
+            disp_list.append(disp)
+    return img_list, flow_list, disp_list
+
+
+def uncert_regression_gal(img_list, reduction = 'mean'):
+    img_list = torch.cat(img_list, dim=0)
+    mean = img_list[:,:-1].mean(dim=0, keepdim=True)
+    ale = img_list[:,-1:].mean(dim=0, keepdim=True)
+    epi = torch.var(img_list[:,:-1], dim=0, keepdim=True)
+    epi = epi.mean(dim=1, keepdim=True)
+    uncert = ale + epi
+    if reduction == 'mean':
+        return ale.mean().item(), epi.mean().item(), uncert.mean().item()
+    elif reduction == 'sum':
+        return ale.sum().item(), epi.sum().item(), uncert.sum().item()
+    else:
+        return ale.detach(), epi.detach(), uncert.detach()
+
+
+def uceloss(errors, uncert, n_bins=15, outlier=0.0, range=None):
+    device = errors.device
+    if range == None:
+        bin_boundaries = torch.linspace(uncert.min().item(), uncert.max().item(), n_bins + 1, device=device)
+    else:
+        bin_boundaries = torch.linspace(range[0], range[1], n_bins + 1, device=device)
+    bin_lowers = bin_boundaries[:-1]
+    bin_uppers = bin_boundaries[1:]
+
+    errors_in_bin_list = []
+    avg_uncert_in_bin_list = []
+    prop_in_bin_list = []
+
+    uce = torch.zeros(1, device=device)
+    for bin_lower, bin_upper in zip(bin_lowers, bin_uppers):
+        # Calculated |uncertainty - error| in each bin
+        in_bin = uncert.gt(bin_lower.item()) * uncert.le(bin_upper.item())
+        prop_in_bin = in_bin.float().mean()
+        prop_in_bin_list.append(prop_in_bin)
+        if prop_in_bin.item() > outlier:
+            errors_in_bin = errors[in_bin].float().mean()
+            avg_uncert_in_bin = uncert[in_bin].mean()
+            uce += torch.abs(avg_uncert_in_bin - errors_in_bin) * prop_in_bin
+
+            errors_in_bin_list.append(errors_in_bin)
+            avg_uncert_in_bin_list.append(avg_uncert_in_bin)
+
+    err_in_bin = torch.tensor(errors_in_bin_list, device=device)
+    avg_uncert_in_bin = torch.tensor(avg_uncert_in_bin_list, device=device)
+    prop_in_bin = torch.tensor(prop_in_bin_list, device=device)
+
+    return uce, err_in_bin, avg_uncert_in_bin, prop_in_bin
+# ==========================================
+# Metric & Mask Tool Functions
+# ==========================================
+
+def build_foreground_mask(img, thresh=0.01, dilate_ks=5):
+    """
+    Generate a foreground mask from a target image, optionally dilated.
+    img: torch.Tensor
+    """
+    mask = (img > thresh).float()
+    if dilate_ks > 1:
+        pad = dilate_ks // 2
+        mask = F.max_pool2d(mask, kernel_size=dilate_ks, stride=1, padding=pad)
+    return mask
+
+
+def compute_zncc(I, J, eps=1e-5):
+    """Compute Zero-mean Normalized Cross-Correlation (ZNCC)"""
+    I_mean, J_mean = np.mean(I), np.mean(J)
+    cross = np.sum((I - I_mean) * (J - J_mean))
+    I_var, J_var = np.sum((I - I_mean)**2), np.sum((J - J_mean)**2)
+    return cross / (np.sqrt(I_var * J_var) + eps)
+
+
+def compute_mse(I, J):
+    """Compute Mean Squared Error"""
+    return np.mean((I - J) ** 2)
+
+def compute_nmi(I, J, bins=256):
+    """Compute Normalized Mutual Information (NMI)"""
+    hist_2d, _, _ = np.histogram2d(I.flatten(), J.flatten(), bins=bins)
+    pxy = hist_2d / np.sum(hist_2d)
+    px = np.sum(pxy, axis=1)
+    py = np.sum(pxy, axis=0)
+
+    px_nz = px[px > 0]
+    py_nz = py[py > 0]
+    pxy_nz = pxy[pxy > 0]
+
+    hx = -np.sum(px_nz * np.log(px_nz))
+    hy = -np.sum(py_nz * np.log(py_nz))
+    hxy = -np.sum(pxy_nz * np.log(pxy_nz))
+
+    return (hx + hy) / hxy if hxy > 0 else 0
+
+def compute_foreground_dice(I, J, thresh=0.01, dilate_ks=5):
+    """
+    Foreground Overlap DICE calculation, enhanced with morphological dilation
+    to fill in internal holes and represent true tissue overlap, mirroring fg_mask.
+    """
+    from scipy.ndimage import maximum_filter
+    m_I = I > thresh
+    m_J = J > thresh
+
+    if dilate_ks > 1:
+        m_I = maximum_filter(m_I, size=dilate_ks)
+        m_J = maximum_filter(m_J, size=dilate_ks)
+
+    intersection = np.sum(m_I & m_J)
+    return (2. * intersection) / (np.sum(m_I) + np.sum(m_J) + 1e-8)
+
+
+class TemplateMatchTool:
+    """Sliding-window template matching for coarse localization."""
+
+    @staticmethod
+    def zncc_map(image, template, eps=1e-6, stride=1):
+        """
+        Compute ZNCC map between image and template with a sliding window.
+        Returns a (H - h + 1, W - w + 1) score map sampled by stride.
+        """
+        if image.ndim != 2 or template.ndim != 2:
+            raise ValueError("Only 2D arrays are supported for coarse matching.")
+        if stride < 1:
+            raise ValueError("stride must be >= 1")
+
+        image = image.astype(np.float32, copy=False)
+        template = template.astype(np.float32, copy=False)
+        th, tw = template.shape
+        H, W = image.shape
+        if th > H or tw > W:
+            raise ValueError("template must be smaller than image.")
+
+        windows = np.lib.stride_tricks.sliding_window_view(image, (th, tw))
+        if stride > 1:
+            windows = windows[::stride, ::stride]
+
+        t_mean = template.mean()
+        t_zero = template - t_mean
+        t_norm = np.sqrt(np.sum(t_zero * t_zero)) + eps
+
+        w_mean = windows.mean(axis=(2, 3), keepdims=True)
+        w_zero = windows - w_mean
+        w_norm = np.sqrt(np.sum(w_zero * w_zero, axis=(2, 3))) + eps
+
+        numer = np.sum(w_zero * t_zero, axis=(2, 3))
+        zncc = numer / (w_norm * t_norm)
+        return zncc
+
+    @staticmethod
+    def find_best_match(image, template, eps=1e-6, stride=1, return_map=False):
+        """
+        Find the best match (top-left) location in image for the template.
+        Returns ((y, x), score) and optionally the score map.
+        """
+        score_map = TemplateMatchTool.zncc_map(
+            image, template, eps=eps, stride=stride
+        )
+        max_idx = np.unravel_index(np.argmax(score_map), score_map.shape)
+        y = int(max_idx[0] * stride)
+        x = int(max_idx[1] * stride)
+        score = float(score_map[max_idx])
+        if return_map:
+            return (y, x), score, score_map
+        return (y, x), score
+
+
+def crop_tensor_2d(tensor_4d, y0, x0, h, w):
+    """Crop a 4D tensor (B, C, H, W) by top-left and size."""
+    return tensor_4d[:, :, y0:y0 + h, x0:x0 + w]

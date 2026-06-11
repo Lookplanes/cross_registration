@@ -1,0 +1,49 @@
+# IDR dataset channel mapping for modality_analyzer.
+# Defines which channel index is the Hub (nucleus) and which are Source (other modalities).
+#
+# auto_nuclei: auto-detect hub channel by name keywords (hoechst/dapi/dna/nuclei/h2b).
+# auto_protein: remaining channels tagged as protein.
+
+datasets:
+  idr0003-breker-plasticity:
+    hub_channels: [2]
+    hub_label: "H2B"
+    source_channels: {0: "GFP", 1: "Transmitted"}
+
+  idr0037-vigilante-hipsci:
+    hub_channels: [0]
+    hub_label: "DAPI"
+    source_channels: {1: "Alexa488", 2: "CellMask", 3: "Brightfield"}
+
+  idr0056-stojic-lncrnas:
+    hub_channels: [3]
+    hub_label: "Hoechst"
+    source_channels: {0: "Tubulin", 1: "CEP215", 2: "Phalloidin"}
+    screen_configs:
+      screenB: {0: "alpha-Tubulin", 1: "gamma-Tubulin", 2: "phospho-H3"}
+      screenC: {0: "alpha-Tubulin", 1: "gamma-Tubulin", 2: "phospho-H3"}
+
+  idr0080:
+    hub_channels: [0]
+    hub_label: "DNA"
+    source_channels: {1: "Ch1", 2: "Ch2", 3: "Ch3", 4: "Ch4"}
+
+  idr0081:
+    hub_channels: [0]
+    hub_label: "DAPI"
+    source_channels: {1: "FITC"}
+
+  idr0086:
+    hub_channels: [1]
+    hub_label: "DAPI"
+    source_channels: {0: "488"}
+
+  idr0161:
+    hub_channels: "auto_nuclei"
+    hub_label: "Nuclei"
+    source_channels: "auto_protein"
+
+  idr0163:
+    hub_channels: "auto_nuclei"
+    hub_label: "DAPI/Hoechst"
+    source_channels: "auto_protein"
