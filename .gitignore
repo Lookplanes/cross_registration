@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# IDE
+.vscode/
+.idea/
+
+# Environment
+.venv/
+venv/
+env/
+
+# Data & results (managed externally)
+data/
+results/
+*.csv
+*.json
+*.png
+*.jpg
+*.tiff
+*.tif
+*.pth
+*.ckpt
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Conda
+*.egg
