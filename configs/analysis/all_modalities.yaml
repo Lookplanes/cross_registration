@@ -1,0 +1,248 @@
+# Unified modality configuration for full modality landscape analysis.
+#
+# center: true  →  the 6 hub modalities (highlighted in visualizations)
+# center: false →  collected modalities from BioImage Archive (shown as "Other")
+#
+# Usage:
+#   python scripts/run_full_tsne.py --config configs/analysis/all_modalities.yaml
+
+modalities:
+  # =========================================================================
+  # 6 Center / Hub Modalities
+  # =========================================================================
+  2PM:
+    source_dir: 2PM/processed/Movie7_EP/channels
+    glob_pattern: "t???_c*"
+    data_root: /data2/wuyh
+    center: true
+
+  Confocal:
+    source_dir: confocal/processed
+    glob_pattern: "*"
+    data_root: /data2/wuyh
+    center: true
+
+  Fluorescence:
+    source_dir: fluorescence/processed
+    glob_pattern: "*"
+    data_root: /data2/wuyh
+    center: true
+
+  H&E:
+    source_dir: H&E/processed
+    glob_pattern: "*"
+    data_root: /data2/wuyh
+    center: true
+
+  MACSima:
+    source_dir: MACSima/processed
+    glob_pattern: "**/*"
+    data_root: /data2/wuyh
+    center: true
+
+  MSI:
+    source_dir: MSI/processed
+    glob_pattern: "**/*"
+    data_root: /data2/wuyh
+    center: true
+
+  # =========================================================================
+  # Collected Modalities (BioImage Archive)
+  # =========================================================================
+  Brightfield_HE_WSI:
+    source_dir: brightfield_he_wsi
+    glob_pattern: "**/*"
+    data_root: /data2/xujr/general_data/collected_modalities_processed2
+    center: false
+
+  Brightfield_IHC_2D:
+    source_dir: brightfield_ihc_2d
+    glob_pattern: "**/*"
+    data_root: /data2/xujr/general_data/collected_modalities_processed2
+    center: false
+
+  Brightfield_LacZ_2D:
+    source_dir: brightfield_lacz_2d
+    glob_pattern: "**/*"
+    data_root: /data2/xujr/general_data/collected_modalities_processed2
+    center: false
+
+  Brightfield_Masson_Trichrome_WSI:
+    source_dir: brightfield_masson_trichrome_wsi
+    glob_pattern: "**/*"
+    data_root: /data2/xujr/general_data/collected_modalities_processed2
+    center: false
+
+  Coherent_Raman_Scattering_LF_2D:
+    source_dir: coherent_raman_scattering_label_free_2d
+    glob_pattern: "**/*"
+    data_root: /data2/xujr/general_data/collected_modalities_processed2
+    center: false
+
+  Confocal_Airyscan_LiveCell_2D:
+    source_dir: confocal_airyscan_live_cell_staining_2d
+    glob_pattern: "**/*"
+    data_root: /data2/xujr/general_data/collected_modalities_processed2
+    center: false
+
+  Confocal_BODIPY_DAPI_2D:
+    source_dir: confocal_bodipy_dapi_2d
+    glob_pattern: "**/*"
+    data_root: /data2/xujr/general_data/collected_modalities_processed2
+    center: false
+
+  Confocal_IF_2D:
+    source_dir: confocal_if_2d
+    glob_pattern: "**/*"
+    data_root: /data2/xujr/general_data/collected_modalities_processed2
+    center: false
+
+  DIC_LabelFree_2D:
+    source_dir: dic_label_free_2d
+    glob_pattern: "**/*"
+    data_root: /data2/xujr/general_data/collected_modalities_processed2
+    center: false
+
+  EpiFluorescence_FISH_MIP:
+    source_dir: epifluorescence_fish_mip
+    glob_pattern: "**/*"
+    data_root: /data2/xujr/general_data/collected_modalities_processed2
+    center: false
+
+  IMC_Multiplex_IF_2D:
+    source_dir: imc_multiplex_if_2d
+    glob_pattern: "**/*"
+    data_root: /data2/xujr/general_data/collected_modalities_processed2
+    center: false
+
+  Lensless_Imaging_LF_2D:
+    source_dir: lensless_imaging_label_free_2d
+    glob_pattern: "**/*"
+    data_root: /data2/xujr/general_data/collected_modalities_processed2
+    center: false
+
+  PhaseContrast_LF_2D:
+    source_dir: phase_contrast_label_free_2d
+    glob_pattern: "**/*"
+    data_root: /data2/xujr/general_data/collected_modalities_processed2
+    center: false
+
+  PhaseContrast_OilRedO_2D:
+    source_dir: phase_contrast_oil_red_o_2d
+    glob_pattern: "**/*"
+    data_root: /data2/xujr/general_data/collected_modalities_processed2
+    center: false
+
+  PhotonAbsorption_RemoteSensing_LF_WSI:
+    source_dir: photon_absorption_remote_sensing_label_free_wsi
+    glob_pattern: "**/*"
+    data_root: /data2/xujr/general_data/collected_modalities_processed2
+    center: false
+
+  SEM_BackscatterElectron_2D:
+    source_dir: sem_backscatter_electron_2d
+    glob_pattern: "**/*"
+    data_root: /data2/xujr/general_data/collected_modalities_processed2
+    center: false
+
+  SEM_MetalCoated_2D:
+    source_dir: SEM_MetalCoated_2D
+    glob_pattern: "**/*"
+    data_root: /data2/xujr/general_data/collected_modalities_processed2
+    center: false
+
+  Slimfield_FluorescentDye_2D:
+    source_dir: slimfield_fluorescent_dye_2d
+    glob_pattern: "**/*"
+    data_root: /data2/xujr/general_data/collected_modalities_processed2
+    center: false
+
+  SlimVar_Widefield_SM_FP_2D:
+    source_dir: slimvar_widefield_single_molecule_fluorescent_protein_tagging_2d
+    glob_pattern: "**/*"
+    data_root: /data2/xujr/general_data/collected_modalities_processed2
+    center: false
+
+  SpinningDisk_4i_IF_MIP:
+    source_dir: spinning_disk_4i_if_mip
+    glob_pattern: "**/*"
+    data_root: /data2/xujr/general_data/collected_modalities_processed2
+    center: false
+
+  SpinningDisk_GFP_Tagging_2D:
+    source_dir: spinning_disk_gfp_tagging_2d
+    glob_pattern: "**/*"
+    data_root: /data2/xujr/general_data/collected_modalities_processed2
+    center: false
+
+  SpinningDisk_SIM_LiveCell_2D:
+    source_dir: spinning_disk_sim_live_cell_staining_2d
+    glob_pattern: "**/*"
+    data_root: /data2/xujr/general_data/collected_modalities_processed2
+    center: false
+
+  SpinningDisk_SplitGFP_2D:
+    source_dir: spinning_disk_split_gfp_2d
+    glob_pattern: "**/*"
+    data_root: /data2/xujr/general_data/collected_modalities_processed2
+    center: false
+
+  SWIR_ICG_Maltotriose_2D:
+    source_dir: swir_icg_maltotriose_2d
+    glob_pattern: "**/*"
+    data_root: /data2/xujr/general_data/collected_modalities_processed2
+    center: false
+
+  TEM_LabelFree_2D:
+    source_dir: tem_label_free_2d
+    glob_pattern: "**/*"
+    data_root: /data2/xujr/general_data/collected_modalities_processed2
+    center: false
+
+  TIRF_SM_FluorescentDye_2D:
+    source_dir: tirf_single_molecule_fluorescent_dye_2d
+    glob_pattern: "**/*"
+    data_root: /data2/xujr/general_data/collected_modalities_processed2
+    center: false
+
+  TwoPhoton_FP_2D:
+    source_dir: Two_Photon_FP_2D
+    glob_pattern: "**/*"
+    data_root: /data2/xujr/general_data/collected_modalities_processed2
+    center: false
+
+  WSI_Multiplex_IF_WSI:
+    source_dir: whole_slide_scanner_multiplex_if_wsi
+    glob_pattern: "**/*"
+    data_root: /data2/xujr/general_data/collected_modalities_processed2
+    center: false
+
+  Widefield_FISH_2D:
+    source_dir: widefield_fish_2d
+    glob_pattern: "**/*"
+    data_root: /data2/xujr/general_data/collected_modalities_processed2
+    center: false
+
+  Widefield_FRET_FP_2D:
+    source_dir: widefield_fret_fluorescent_protein_tagging_2d
+    glob_pattern: "**/*"
+    data_root: /data2/xujr/general_data/collected_modalities_processed2
+    center: false
+
+  Widefield_IF_2D:
+    source_dir: widefield_if_2d
+    glob_pattern: "**/*"
+    data_root: /data2/xujr/general_data/collected_modalities_processed2
+    center: false
+
+  Widefield_LiveCell_2D:
+    source_dir: widefield_live_cell_staining_2d
+    glob_pattern: "**/*"
+    data_root: /data2/xujr/general_data/collected_modalities_processed2
+    center: false
+
+  Widefield_SM_HaloTag_JF646_2D:
+    source_dir: widefield_single_molecule_halotag_jf646_2d
+    glob_pattern: "**/*"
+    data_root: /data2/xujr/general_data/collected_modalities_processed2
+    center: false

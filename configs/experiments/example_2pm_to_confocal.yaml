@@ -1,0 +1,48 @@
+# Example experiment: 2PM → Confocal cross-modality registration
+#
+# Usage:
+#   python scripts/run_experiment.py --config configs/experiments/example_2pm_to_confocal.yaml
+
+name: 2pm_to_confocal
+source_modality: 2PM
+target_modality: Confocal
+
+# Data paths
+data_root: /data2/wuyh
+train_dir: /data2/xujr/idr_data/Train_CrossModal_unsup_full
+val_dir: /data2/xujr/idr_data/Train_CrossModal/Val
+test_dir: /data2/xujr/idr_data/dataset_crossmodal_test/Test/ch1_to_ch0
+save_root: /data2/xujr/output_model/experiments
+
+# Image settings
+img_size: [256, 256]
+input_nc: 1
+output_nc: 1
+
+# ------------------------------------------------------------------
+# Translation stage (CUT)
+# ------------------------------------------------------------------
+translation:
+  n_epochs: 200
+  n_epochs_decay: 200
+  ngf: 64
+  ndf: 64
+  lr: 0.0002
+  lambda_GAN: 1.0
+  lambda_NCE: 1.0
+
+# ------------------------------------------------------------------
+# Registration stage (TransMorph, unsupervised)
+# ------------------------------------------------------------------
+registration:
+  epochs: 400
+  lr: 0.0001
+  ncc_weight: 1.0
+  reg_weight: 1.0
+  batch_size: 64
+
+# ------------------------------------------------------------------
+# Evaluation
+# ------------------------------------------------------------------
+evaluate:
+  device: cpu

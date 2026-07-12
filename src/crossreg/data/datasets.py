@@ -108,6 +108,7 @@ class PairedImageFolderDataset(Dataset):
         flow_subdir: str | None = None,
         img_size: tuple[int, int] | None = None,
         transforms=None,
+        grayscale: bool = False,
     ):
         super().__init__()
         self.root_dir = root_dir
@@ -117,6 +118,7 @@ class PairedImageFolderDataset(Dataset):
         self.flow_dir = os.path.join(root_dir, flow_subdir) if flow_subdir else None
         self.img_size = img_size
         self.transforms = transforms
+        self.grayscale = grayscale
 
         if not os.path.isdir(self.moving_dir):
             raise FileNotFoundError(f"moving dir not found: {self.moving_dir}")
@@ -140,11 +142,15 @@ class PairedImageFolderDataset(Dataset):
     def _read_rgb(self, path: str) -> np.ndarray:
         from PIL import Image
 
-        img = Image.open(path).convert('RGB')
+        mode = "L" if self.grayscale else "RGB"
+        img = Image.open(path).convert(mode)
         if self.img_size is not None:
             img = img.resize((self.img_size[1], self.img_size[0]), resample=Image.BILINEAR)
-        arr = np.asarray(img, dtype=np.float32) / 255.0  # [H,W,3]
-        arr = arr.transpose(2, 0, 1)  # [3,H,W]
+        arr = np.asarray(img, dtype=np.float32) / 255.0
+        if not self.grayscale:
+            arr = arr.transpose(2, 0, 1)  # [3, H, W]
+        else:
+            arr = arr[None, ...]  # [1, H, W]
         return arr
 
     def _read_mask(self, path: str) -> np.ndarray:

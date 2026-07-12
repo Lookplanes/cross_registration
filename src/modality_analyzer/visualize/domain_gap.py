@@ -1,9 +1,12 @@
 """
-Domain gap heatmap: Z-score distance between Hub and Source channels per study.
+Modality distance matrix: pairwise Z-score between modality feature vectors.
 
-  heatmap rows  = (Study, Source channel)
-  heatmap cols  = feature names
-  cell value    = (Source_mean - Hub_mean) / Hub_std
+  heatmap rows/cols = modality names
+  cell value        = Z-score distance (modality_A vs modality_B)
+  diagonal          = 0 (self-distance)
+
+Use this to find which modalities cluster together (good translation targets)
+and which are far apart (hardest to translate between).
 """
 
 import numpy as np
@@ -17,60 +20,55 @@ def plot_domain_gap(
     core_features: list[str],
     feature_labels: dict[str, str] | None = None,
 ) -> plt.Figure:
-    """Plot a Z-score heatmap of Hub→Source domain gap per study.
+    """Plot pairwise Z-score distance matrix between all modalities.
+
+    Each modality's feature vector is the mean across all its images.
+    Distance = Z-score of difference normalised by global std per feature.
 
     Args:
-        df: DataFrame with columns ``study``, ``channel_type``, ``channel_name``,
-            and all feature columns in ``core_features``.
-        core_features: list of feature column names to include.
-        feature_labels: optional mapping feature_name → display label.
+        df: DataFrame with ``modality_name`` and feature columns.
+        core_features: feature column names to include.
+        feature_labels: optional short labels for feature columns.
 
     Returns:
         matplotlib Figure.
     """
-    studies = sorted(df["study"].unique())
-    rows_data: list[list[float]] = []
-    row_labels: list[str] = []
-
-    for study in studies:
-        sub = df[df["study"] == study]
-        hub = sub[sub["channel_type"] == "hub"]
-        if hub.empty:
-            continue
-        hub_mean = hub[core_features].mean()
-        hub_std = hub[core_features].std().replace(0, 1e-8)
-
-        for src_name in sorted(sub[sub["channel_type"] == "source"]["channel_name"].unique()):
-            src = sub[(sub["channel_type"] == "source") & (sub["channel_name"] == src_name)]
-            if src.empty:
-                continue
-            src_mean = src[core_features].mean()
-            z = ((src_mean - hub_mean) / hub_std).tolist()
-            rows_data.append(z)
-            row_labels.append(f"{study[:12]} | {src_name}")
-
-    if not rows_data:
-        fig, ax = plt.subplots(figsize=(10, 2))
-        ax.text(0.5, 0.5, "No data", ha="center", va="center")
+    modalities = sorted(df["modality_name"].unique())
+    if len(modalities) < 2:
+        fig, ax = plt.subplots(figsize=(6, 2))
+        ax.text(0.5, 0.5, "Need >= 2 modalities", ha="center", va="center")
         return fig
 
-    # Label columns
-    labels = [feature_labels.get(f, f) if feature_labels else f for f in core_features]
+    # Per-modality mean feature vector
+    means = {}
+    for mod in modalities:
+        sub = df[df["modality_name"] == mod][core_features]
+        means[mod] = sub.mean()
 
-    z_arr = np.array(rows_data, dtype=np.float32)
-    vmax = max(abs(z_arr).max(), 0.5)
+    # Global std for Z-score normalisation
+    global_std = df[core_features].std().replace(0, 1e-8)
 
-    fig, ax = plt.subplots(figsize=(max(12, len(core_features) * 0.7), max(4, len(row_labels) * 0.35)))
+    # Pairwise distance matrix
+    n = len(modalities)
+    dist = np.zeros((n, n), dtype=np.float32)
+    for i, mi in enumerate(modalities):
+        for j, mj in enumerate(modalities):
+            if i == j:
+                dist[i, j] = 0.0
+            else:
+                z = ((means[mi] - means[mj]) / global_std).abs().mean()
+                dist[i, j] = float(z)
+
+    labels = modalities
+    fig, ax = plt.subplots(figsize=(max(5, n * 1.0), max(3.5, n * 0.7)))
     sns.heatmap(
-        z_arr, ax=ax, xticklabels=labels, yticklabels=row_labels,
-        cmap="RdBu_r", center=0, vmin=-vmax, vmax=vmax,
-        cbar_kws={"label": "Z-score (Source vs Hub)"},
+        dist, ax=ax, xticklabels=labels, yticklabels=labels,
+        annot=True, fmt=".2f", cmap="YlOrRd",
+        cbar_kws={"label": "Mean Z-score distance"},
         linewidths=0.5,
     )
-    ax.set_title("Domain Gap: Hub → Source Feature Distance")
-    ax.set_xlabel("Feature")
-    ax.set_ylabel("Study | Source Channel")
-    plt.setp(ax.get_xticklabels(), rotation=45, ha="right", fontsize=7)
-    plt.setp(ax.get_yticklabels(), fontsize=7)
+    ax.set_title("Modality Distance Matrix (lower = more similar)")
+    plt.setp(ax.get_xticklabels(), rotation=45, ha="right", fontsize=8)
+    plt.setp(ax.get_yticklabels(), rotation=0, fontsize=8)
     fig.tight_layout()
     return fig

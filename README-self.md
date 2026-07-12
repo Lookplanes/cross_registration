@@ -6,113 +6,106 @@ Keep it short, factual, and up to date.
 ## Project Goals
 - Cross-modality medical image registration.
 - Pipeline: modality translation (M -> N) then registration in same modality.
+- Hub-spoke architecture: M modalities → N center modalities (N ≪ M), route through centers.
 - Current focus: 2D single-channel PNG; keep interfaces open for multi-channel and 3D.
 - No C/CUDA or acceleration work for now.
+- **Data inventory**: see [DATA_INVENTORY.md](DATA_INVENTORY.md)
+
+## 6 Center Modalities (all processed ✅)
+
+| # | Modality | Images | Source | Status |
+|---|----------|:---:|------|:---:|
+| 1 | 2PM | 232 | ImmuneMAP Movie7_EP | ✅ |
+| 2 | Confocal | 360 | IDR0056 (.flex) | ✅ |
+| 3 | Fluorescence | 1715 | DeepLIIF (.zip) | ✅ |
+| 4 | H&E | 600 | HistoPlexer-Ultivue (.ndpi) | ✅ |
+| 5 | MACSima | 24 | S-BIAD1116 (.tif) | ✅ |
+| 6 | MSI | 83 | MSIFlow (imzML) | ✅ (外部处理) |
 
 ## Current Directory Structure
 
 ```
 cross_registration/
 ├── README-self.md
-├── requirements.txt            # ✅ pip dependencies
+├── DATA_INVENTORY.md          # ✅ 数据集资产清单
+├── requirements.txt           # ✅ pip dependencies
 ├── configs/
 │   ├── analysis/
-│   │   └── idr_channels.yaml   # ✅ IDR channel mapping for feature extraction
+│   │   ├── modality_sources.yaml  # ✅ 6 模态数据源配置
+│   │   └── idr_channels.yaml      # ✅ IDR 通道映射
 │   ├── pipelines/              # TODO: empty
-│   ├── registration/           # TODO: empty, need TransMorph config YAMLs
-│   └── translation/            # TODO: empty, need CUT config YAMLs
-├── scripts/                    # ✅ 2 CLI scripts done
-│   ├── extract_features.py     # ✅ Scan TIFF datasets → features CSV
-│   └── analyze_domain_gap.py   # ✅ CSV → domain gap / PCA / radar figures
-├── src/crossreg/
+│   ├── registration/           # TODO: empty
+│   └── translation/            # TODO: empty
+├── scripts/                    # ✅ 4 CLI scripts
+│   ├── extract_features.py         # ✅ 手工特征 → CSV
+│   ├── extract_resnet_features.py  # ✅ ResNet18 特征 → CSV (新增)
+│   └── analyze_domain_gap.py       # ✅ CSV → distance/tsne/pca/radar 图
+├── src/crossreg/               # 核心配准包
 │   ├── __init__.py
-│   ├── config/                 # TODO: empty, need config schema/loader
 │   ├── data/                   # ✅ migrated
-│   │   ├── __init__.py
-│   │   ├── data_utils.py       # ✅ migrated (pkload, etc.)
-│   │   ├── datasets.py         # ✅ migrated (PairedImageFolder, MultiModalityPaired, etc.)
-│   │   ├── rand.py             # ✅ migrated (Uniform, Gaussian, Constant)
-│   │   └── transforms.py       # ✅ migrated (Flip, Rotate, Crop, Compose, etc.)
-│   ├── pipeline/               # ✅ core pipeline
-│   │   ├── __init__.py
-│   │   └── inference.py        # ✅ PipelineInference: CUT -> TransMorph end-to-end
+│   │   ├── data_utils.py, datasets.py, rand.py, transforms.py
+│   │   └── perturbation.py     # ✅ SynthMorph-style appearance & deformation
+│   ├── pipeline/
+│   │   └── inference.py        # ✅ CUT → TransMorph 端到端
 │   ├── registration/
-│   │   ├── __init__.py
-│   │   └── transmorph/         # ✅ migrated
-│   │       ├── __init__.py
-│   │       ├── config.py       # ✅ 2D TransMorph config variants
-│   │       ├── losses.py       # ✅ NCC, SSIM, Grad, MIND, MI, etc.
-│   │       ├── model.py        # ✅ TransMorph + SwinTransformer + decoder
-│   │       └── utils.py        # ✅ SpatialTransformer, metrics, register_model
+│   │   └── transmorph/         # ✅ SwinTransformer + 解码器 + 损失函数
 │   ├── translation/
-│   │   ├── __init__.py
-│   │   └── cut/                # ✅ migrated (stripped from official CUT)
-│   │       ├── __init__.py
-│   │       ├── networks.py     # ✅ ResnetGenerator, NLayerDiscriminator, PatchSampleF, GANLoss
-│   │       ├── patchnce.py     # ✅ PatchNCELoss (decoupled from argparse)
-│   │       ├── cut_model.py    # ✅ CUTWrapper (train) + CUTInference (gen-only inference)
-│   │       └── test.py         # ✅ smoke test (random weights, all passes)
-│   └── utils/                  # TODO: empty, need paths.py, io helpers
+│   │   └── cut/                # ✅ ResnetGenerator + PatchNCE
+│   ├── config/                 # TODO: empty
+│   └── utils/                  # TODO: empty
 │
-├── src/modality_analyzer/      # ✅ independent sub-package
-│   ├── requirements.txt        # ✅ standalone deps (numpy, scipy, sklearn, ...)
-│   ├── __init__.py             # ✅ CORE_FEATURES, FEAT_LABELS (single source of truth)
-│   ├── features/
-│   │   ├── __init__.py         # ✅ extract_all_features() aggregator
-│   │   ├── intensity.py        # ✅ mean/std/percentiles/skew/kurtosis/SNR
-│   │   ├── histogram.py        # ✅ entropy, peak, active bin count
-│   │   ├── texture.py          # ✅ GLCM contrast/homogeneity/energy/correlation
-│   │   ├── gradient.py         # ✅ Sobel gradient stats + edge density
-│   │   └── frequency.py        # ✅ FFT radial band energies + low/high ratio
-│   └── visualize/
-│       ├── __init__.py
-│       ├── domain_gap.py       # ✅ Z-score heatmap (Hub vs Source)
-│       ├── pca.py              # ✅ PCA scatter + top loading bar chart
-│       └── radar.py            # ✅ per-study radar chart
+├── src/modality_analyzer/      # ✅ 特征分析工具包
+│   ├── __init__.py             # ✅ CORE_FEATURES (19维) + FEAT_LABELS
+│   ├── features/               # ✅ 5类: intensity/histogram/texture/gradient/frequency
+│   └── visualize/              # ✅ 4图: domain_gap/pca/tsne/radar
 │
-└── tests/                      # TODO: empty, no tests
+└── results/                    # ✅ 分析输出
+    ├── features.csv            # 手工特征 907行×19维
+    ├── resnet_features.csv     # ResNet特征 907行×512维
+    ├── figures/                # 手工特征: distance + tsne + radar
+    ├── figures_resnet/         # ResNet: distance + tsne
+    └── figures_resnet-ch{0-3}/ # 精选子通道 (含MSI)
 ```
 
 ## ✅ Completed
 | Module | Location | Notes |
 |--------|----------|-------|
-| TransMorph model | src/crossreg/registration/transmorph/model.py | SwinTransformer + decoder + deformable head; `get_affine_net` not migrated |
-| TransMorph configs | src/crossreg/registration/transmorph/config.py | 11 config variants (2D only) |
-| Loss functions | src/crossreg/registration/transmorph/losses.py | NCC, SSIM, Grad, MIND, MI, PCC, etc. |
-| Registration utils | src/crossreg/registration/transmorph/utils.py | SpatialTransformer (device-adaptive), register_model, metrics |
-| Datasets | src/crossreg/data/datasets.py | PairedImageFolder, MultiModalityPaired, SingleModalityPaired, RaFD |
-| Transforms | src/crossreg/data/transforms.py | Flip, Rotate, Crop, Compose, etc. |
-| Data utils | src/crossreg/data/data_utils.py | pkload, etc. |
-| Rand utils | src/crossreg/data/rand.py | Uniform, Gaussian, Constant samplers |
-| CUT networks | src/crossreg/translation/cut/networks.py | ResnetGenerator, NLayerDiscriminator, PatchSampleF, GANLoss (stylegan removed) |
-| PatchNCE loss | src/crossreg/translation/cut/patchnce.py | Decoupled from argparse, clean config-driven API |
-| CUT model | src/crossreg/translation/cut/cut_model.py | CUTWrapper (train) + CUTInference (generator-only inference) |
-| Smoke test | src/crossreg/translation/cut/test.py | 4 tests: inference, training, factory funcs, save/load — all pass |
-| Pipeline inference | src/crossreg/pipeline/inference.py | End-to-end: CUT translate -> TransMorph register; single + batch OK |
-| Modality features | src/modality_analyzer/features/*.py | 5 categories: intensity, histogram, texture (GLCM), gradient, frequency |
-| Modality visualize | src/modality_analyzer/visualize/*.py | 3 charts: domain gap heatmap, PCA overview, per-study radar |
-| Feature extraction | scripts/extract_features.py | CLI: scan TIFF data → features CSV with resume/checkpoint |
-| Domain gap analysis | scripts/analyze_domain_gap.py | CLI: features CSV → figures (selectable plots) |
+| TransMorph model | src/crossreg/registration/transmorph/model.py | SwinTransformer + decoder |
+| CUT model | src/crossreg/translation/cut/cut_model.py | CUTWrapper + CUTInference |
+| Pipeline inference | src/crossreg/pipeline/inference.py | CUT → TransMorph end-to-end |
+| Datasets / transforms / data utils | src/crossreg/data/ | PairedImageFolder, transforms, pkload |
+| Data perturbation | src/crossreg/data/perturbation.py | SynthMorph-style: appearance, diffeomorphic/FFD flow, test-suite builder |
+| Modality features | src/modality_analyzer/features/ | 5 categories, 19-dim handcrafted |
+| Modality visualize | src/modality_analyzer/visualize/ | domain_gap (Z-score), PCA, t-SNE, radar |
+| Feature extraction | scripts/extract_features.py | Scan data → handcrafted CSV |
+| ResNet extraction | scripts/extract_resnet_features.py | ResNet18 → 512-dim CSV (新增) |
+| Domain gap analysis | scripts/analyze_domain_gap.py | Auto-detect feature type, selectable plots |
+| 6-modality data | /data2/wuyh/ | All 6 center modalities processed |
+| 2PM sub-cluster analysis | results/2pm_subclusters.png | 4 channels by t-SNE |
+| Confocal sub-cluster analysis | results/confocal_subclusters.png | 4 channels by t-SNE |
+| Channel selection analysis | results/figures_resnet-ch{0-3}/ | 2PM each channel vs Conf-Tubulin + others |
 
 ## 🚧 TODO
 | Priority | Task | Where |
 |----------|------|-------|
 | 🔴 High | Define config schema + loader | src/crossreg/config/ |
 | 🔴 High | Create minimal default config YAMLs | configs/{registration,translation,pipelines}/ |
-| 🔴 High | Train/infer scripts (registration) | scripts/train_registration.py, scripts/infer_registration.py |
-| 🟡 Med | Train/infer scripts (translation) | scripts/train_translation.py, scripts/infer_translation.py |
+| 🔴 High | Train/infer scripts (registration) | scripts/train_registration.py |
+| 🟡 Med | Train/infer scripts (translation) | scripts/train_translation.py |
 | 🟡 Med | End-to-end pipeline script | scripts/run_pipeline.py |
 | 🟡 Med | Path resolution helper | src/crossreg/utils/paths.py |
 | 🟡 Med | Evaluation script | scripts/evaluate.py |
-| 🟡 Med | Reuse Microsolve dataset layout (trainA/B) | scripts/prepare_dataset.py |
-| 🟢 Low | Migrate affine registration (TransMorphAffine2D) | src/crossreg/registration/transmorph/ |
+| 🟢 Low | Migrate affine registration | src/crossreg/registration/transmorph/ |
 | 🟢 Low | Unit tests | tests/ |
-| 🟢 Low | Dataset scanner | scripts/scan_dataset.py |
 
-## Data and Model Storage
-- Data and model weights are NOT stored on this disk.
-- All paths should be provided via config or environment variables.
-- Use a single helper (planned in src/crossreg/utils/paths.py) to resolve paths.
+## Environment
+- Conda env: `crossreg` (Python 3.10)
+- Location: `/data2/xujr/conda-envs/crossreg`
+- Activate: `source /data2/xujr/miniconda3/etc/profile.d/conda.sh && conda activate crossreg`
+- Install: `pip install -r requirements.txt`
+- Analysis deps: `pip install seaborn scikit-learn openslide-python openslide-bin h5py`
+- CUDA: unavailable (driver too old); torch 2.12.0+cpu
+- Run tests: `python3 src/crossreg/translation/cut/test.py`
 
 ## Conventions
 - Training and inference are separate entrypoints.
@@ -120,11 +113,5 @@ cross_registration/
 - Prefer registry/adapter patterns to swap models.
 - Default image format: PNG. Avoid format-specific logic outside data/io.
 - Leave hooks for 3D volumes and multi-channel images.
-
-## Environment
-- Conda env: `crossreg` (Python 3.10)
-- Activate: `source /data/xujr/miniconda3/etc/profile.d/conda.sh && conda activate crossreg`
-- Install: `pip install -r requirements.txt`
-- CUDA: driver 12010 too old for torch 2.12+cu130; runs on CPU. Install CPU torch if GPU not needed: `pip install torch --index-url https://download.pytorch.org/whl/cpu`
-- Run tests: `python3 src/crossreg/translation/cut/test.py`
+- Data paths configured via `configs/analysis/modality_sources.yaml`.
 

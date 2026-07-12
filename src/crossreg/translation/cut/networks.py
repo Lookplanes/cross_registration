@@ -8,13 +8,20 @@ Kept: ResnetGenerator, NLayerDiscriminator, PatchSampleF, GANLoss, helpers.
 Removed: StyleGAN2, UnetGenerator, G_Resnet variants, unused encoder/decoder blocks.
 """
 
+from __future__ import annotations
+
+import functools
+from typing import TYPE_CHECKING
+
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn import init
-import functools
 from torch.optim import lr_scheduler
-import numpy as np
+
+if TYPE_CHECKING:
+    from .cut_model import CUTConfig
 
 
 # =============================================================================
@@ -76,21 +83,38 @@ def get_norm_layer(norm_type="instance"):
         raise NotImplementedError(f"Normalization layer [{norm_type}] not found")
 
 
-def get_scheduler(optimizer, opt):
-    if opt.lr_policy == "linear":
+def get_scheduler(optimizer: torch.optim.Optimizer, config: CUTConfig) -> lr_scheduler.LRScheduler:
+    """Build a learning-rate scheduler from a :class:`~.cut_model.CUTConfig`.
 
-        def lambda_rule(epoch):
-            return 1.0 - max(0, epoch + opt.epoch_count - opt.n_epochs) / float(opt.n_epochs_decay + 1)
+    Parameters
+    ----------
+    optimizer : torch.optim.Optimizer
+        The optimizer to schedule.
+    config : CUTConfig
+        Configuration dataclass; uses ``lr_policy``, ``n_epochs``,
+        ``n_epochs_decay``, ``epoch_count``, and ``lr_decay_iters``.
+
+    Returns
+    -------
+    lr_scheduler.LRScheduler
+    """
+    if config.lr_policy == "linear":
+
+        def lambda_rule(epoch: int) -> float:
+            return 1.0 - max(0, epoch + config.epoch_count - config.n_epochs) / float(config.n_epochs_decay + 1)
 
         return lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda_rule)
-    elif opt.lr_policy == "step":
-        return lr_scheduler.StepLR(optimizer, step_size=opt.lr_decay_iters, gamma=0.1)
-    elif opt.lr_policy == "plateau":
+
+    if config.lr_policy == "step":
+        return lr_scheduler.StepLR(optimizer, step_size=config.lr_decay_iters, gamma=0.1)
+
+    if config.lr_policy == "plateau":
         return lr_scheduler.ReduceLROnPlateau(optimizer, mode="min", factor=0.2, threshold=0.01, patience=5)
-    elif opt.lr_policy == "cosine":
-        return lr_scheduler.CosineAnnealingLR(optimizer, T_max=opt.n_epochs, eta_min=0)
-    else:
-        raise NotImplementedError(f"LR policy [{opt.lr_policy}] not implemented")
+
+    if config.lr_policy == "cosine":
+        return lr_scheduler.CosineAnnealingLR(optimizer, T_max=config.n_epochs, eta_min=0)
+
+    raise NotImplementedError(f"LR policy [{config.lr_policy}] not implemented")
 
 
 def init_weights(net, init_type="normal", init_gain=0.02, debug=False):

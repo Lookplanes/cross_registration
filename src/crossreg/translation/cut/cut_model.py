@@ -68,6 +68,7 @@ class CUTConfig:
     n_epochs: int = 200
     n_epochs_decay: int = 200
     epoch_count: int = 1
+    lr_decay_iters: int = 50  # for "step" policy
 
     # Device
     gpu_ids: list[int] = field(default_factory=lambda: [0])
@@ -257,12 +258,6 @@ class CUTWrapper(nn.Module):
     # ------------------------------------------------------------------
 
     def optimize_parameters(self):
-        if not self._F_initialized and self.config.netF == "mlp_sample":
-            self.optimizer_F = torch.optim.Adam(
-                self.netF.parameters(), lr=self.config.lr, betas=(self.config.beta1, self.config.beta2)
-            )
-            self._F_initialized = True
-
         self.forward()
 
         # update D
@@ -277,8 +272,19 @@ class CUTWrapper(nn.Module):
         self.optimizer_G.zero_grad()
         if self.optimizer_F is not None:
             self.optimizer_F.zero_grad()
+
+        # compute_G_loss triggers netF.forward() → create_mlp() on first call,
+        # so netF parameters only become non-empty inside this call.
         self.loss_G = self.compute_G_loss()
         self.loss_G.backward()
+
+        # Lazy-init netF optimizer once its MLP layers exist.
+        if not self._F_initialized and self.config.lambda_NCE > 0.0:
+            self.optimizer_F = torch.optim.Adam(
+                self.netF.parameters(), lr=self.config.lr, betas=(self.config.beta1, self.config.beta2)
+            )
+            self._F_initialized = True
+
         self.optimizer_G.step()
         if self.optimizer_F is not None:
             self.optimizer_F.step()
@@ -291,6 +297,26 @@ class CUTWrapper(nn.Module):
     def set_requires_grad(net, requires_grad=False):
         for param in net.parameters():
             param.requires_grad = requires_grad
+
+    def update_learning_rate(self) -> None:
+        """Apply linear LR decay towards zero over the decay epochs.
+
+        LR = initial_lr * max(0, 1 - epoch_decay / n_epochs_decay)
+        where epoch_decay counts from 0 after the initial ``n_epochs``.
+        """
+        if not hasattr(self, "_decay_step"):
+            self._decay_step = 0
+        old_lr = self.optimizer_G.param_groups[0]["lr"]
+        decay_frac = max(0.0, 1.0 - self._decay_step / max(1, self.config.n_epochs_decay))
+        new_lr = self.config.lr * decay_frac
+        if new_lr < old_lr:
+            for opt in [self.optimizer_G, self.optimizer_D]:
+                for pg in opt.param_groups:
+                    pg["lr"] = new_lr
+            if self.optimizer_F is not None:
+                for pg in self.optimizer_F.param_groups:
+                    pg["lr"] = new_lr
+        self._decay_step += 1
 
     def get_current_losses(self) -> dict[str, float]:
         return {name: float(getattr(self, f"loss_{name}", 0).detach()) for name in self.loss_names}

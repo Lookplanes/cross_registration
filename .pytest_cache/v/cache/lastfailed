@@ -1,0 +1,11 @@
+{
+  "tests/test_all_modules.py::test_cut_inference": true,
+  "tests/test_all_modules.py::test_cut_wrapper": true,
+  "tests/test_all_modules.py::test_transmorph": true,
+  "tests/test_all_modules.py::test_pipeline": true,
+  "tests/test_all_modules.py::test_perturbation": true,
+  "tests/test_all_modules.py::test_datasets": true,
+  "tests/test_all_modules.py::test_modality_analyzer": true,
+  "tests/test_all_modules.py::test_modality_analyzer_io": true,
+  "tests/test_all_modules.py::test_configs": true
+}

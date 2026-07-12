@@ -1,0 +1,36 @@
+# Modality data sources for feature extraction.
+# Each key is a modality label. Value is a dict with:
+#   source_dir:  path relative to --data-root containing images
+#   glob_pattern: optional glob to filter files (default "**/*")
+#   label:       display name in output CSV (defaults to key)
+
+modalities:
+  2PM:
+    source_dir: 2PM/processed/Movie7_EP/channels
+    glob_pattern: "t???_c*"
+    label: "2PM"
+
+  Confocal:
+    source_dir: confocal/processed
+    glob_pattern: "*"
+    label: "Confocal"
+
+  Fluorescence:
+    source_dir: fluorescence/processed
+    glob_pattern: "*"
+    label: "Fluorescence"
+
+  H-E:
+    source_dir: H&E/processed
+    glob_pattern: "*"
+    label: "H&E"
+
+  MACSima:
+    source_dir: MACSima/processed
+    glob_pattern: "**/*"
+    label: "MACSima"
+
+  MSI:
+    source_dir: MSI/processed
+    glob_pattern: "**/*"
+    label: "MSI"

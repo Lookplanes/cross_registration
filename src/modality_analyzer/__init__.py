@@ -1,19 +1,31 @@
 """
 modality_analyzer — Cross-modality feature analysis toolkit.
 
-Core use case:
-  1. Extract ~40-dimensional features from Hub (nucleus) and Source (other modality) channels.
-  2. Compute domain gap between modalities.
-  3. Visualise results (heatmap, PCA, radar).
+Purpose: compare image features across different microscopy modalities to
+find which modalities are most similar (good translation targets) and which
+are most different (hardest to align).
 
-Usage::
+Quick reference
+---------------
+Handcrafted features (19-dim)::
 
     from modality_analyzer.features import extract_all_features
     features = extract_all_features(image_2d)  # np.ndarray -> dict
 
     from modality_analyzer.visualize import plot_domain_gap
     fig = plot_domain_gap(df, CORE_FEATURES, FEAT_LABELS)
-    fig.savefig("domain_gap.png")
+
+ResNet deep features (512-dim)::
+
+    from modality_analyzer.features.resnet import build_resnet_extractor, load_image
+    model = build_resnet_extractor("cpu")
+
+    from modality_analyzer.visualize.tsne_highlight import run_tsne_pipeline
+    fig = run_tsne_pipeline(df, target_modalities=["Fluorescence", "H&E"], ...)
+
+I/O helpers::
+
+    from modality_analyzer.io import discover_images, load_checkpoint, save_checkpoint
 """
 
 # ---------------------------------------------------------------------------

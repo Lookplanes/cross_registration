@@ -11,6 +11,7 @@ build/
 # IDE
 .vscode/
 .idea/
+*.code-workspace
 
 # Environment
 .venv/
@@ -36,3 +37,5 @@ Thumbs.db
 
 # Conda
 *.egg
+
+DATA_INVENTORY.md
