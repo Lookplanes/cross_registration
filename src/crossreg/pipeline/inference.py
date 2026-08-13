@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import torch
 import torch.nn as nn
+import copy
 from dataclasses import dataclass, field
 
 
@@ -112,7 +113,7 @@ def build_pipeline(
     ).to(device)
 
     # Build TransMorph
-    config = CONFIGS[transmorph_config_name]
+    config = copy.deepcopy(CONFIGS[transmorph_config_name])
     config.in_chans = cut_output_nc * 2  # 2 * C for concatenated input
     config.img_size = transmorph_img_size
     transmorph_model = TransMorph(config).to(device)

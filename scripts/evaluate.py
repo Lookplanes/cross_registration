@@ -17,6 +17,7 @@ Usage::
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import os
 import sys
@@ -61,6 +62,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--input-nc", type=int, default=1)
     p.add_argument("--output-nc", type=int, default=1)
     p.add_argument("--device", default="cpu")
+    p.add_argument("--num-workers", type=int, default=0)
     p.add_argument("--no-pipeline", action="store_true",
                    help="Skip CUT translation, evaluate TransMorph only")
     return p.parse_args()
@@ -71,23 +73,30 @@ def parse_args() -> argparse.Namespace:
 # ---------------------------------------------------------------------------
 
 def load_cut(path: str, input_nc: int, output_nc: int, device: torch.device) -> CUTInference:
+    if not os.path.isfile(path):
+        raise FileNotFoundError(f"CUT checkpoint not found: {path}")
+    checkpoint = torch.load(path, map_location=device, weights_only=False)
+    saved_config = checkpoint.get("config", {}) if isinstance(checkpoint, dict) else {}
+    for key, requested in (("input_nc", input_nc), ("output_nc", output_nc)):
+        if key in saved_config and saved_config[key] != requested:
+            raise ValueError(
+                f"CUT checkpoint {key}={saved_config[key]} does not match requested {requested}"
+            )
     model = CUTInference(
         input_nc=input_nc, output_nc=output_nc,
+        ngf=saved_config.get("ngf", 64),
+        netG=saved_config.get("netG", "resnet_9blocks"),
         gpu_ids=[0] if device.type == "cuda" else [],
     ).to(device)
-    if os.path.isfile(path):
-        state = torch.load(path, map_location=device, weights_only=True)
-        model.netG.load_state_dict(state, strict=False)
-        print(f"Loaded CUT from {path}")
-    else:
-        print(f"WARNING: CUT checkpoint not found at {path}, using random init")
+    model.load_weights(path)
+    print(f"Loaded CUT from {path}")
     model.eval()
     return model
 
 
 def load_transmorph(path: str, img_size: tuple[int, int],
                     in_chans: int, device: torch.device) -> TransMorph:
-    config = CONFIGS["TransMorph"]
+    config = copy.deepcopy(CONFIGS["TransMorph"])
     config.img_size = img_size
     config.in_chans = in_chans
     model = TransMorph(config).to(device)
@@ -100,7 +109,7 @@ def load_transmorph(path: str, img_size: tuple[int, int],
         clean = OrderedDict()
         for k, v in state.items():
             clean[k.replace("module.", "")] = v
-        model.load_state_dict(clean, strict=False)
+        model.load_state_dict(clean, strict=True)
         print(f"Loaded TransMorph from {path}")
     else:
         print(f"WARNING: TransMorph checkpoint not found at {path}")
@@ -129,7 +138,8 @@ def main() -> None:
         img_size=tuple(args.img_size),
         grayscale=(args.input_nc == 1),
     )
-    loader = DataLoader(ds, batch_size=1, shuffle=False, num_workers=2)
+    loader = DataLoader(ds, batch_size=1, shuffle=False,
+                        num_workers=args.num_workers)
     print(f"Test samples: {len(ds)}")
 
     # ------------------------------------------------------------------
@@ -165,9 +175,14 @@ def main() -> None:
     all_results: list[dict] = []
 
     for idx, batch in enumerate(tqdm(loader, desc="Eval")):
-        moving, fixed = batch[0].to(device), batch[1].to(device)
-        gt_flow = batch[2].to(device) if len(batch) >= 3 else None
-        valid_mask = batch[3].to(device) if len(batch) >= 4 else None
+        moving = batch["moving"].to(device)
+        fixed = batch["fixed"].to(device)
+        gt_flow = batch.get("flow")
+        valid_mask = batch.get("valid_mask")
+        if gt_flow is not None:
+            gt_flow = gt_flow.to(device)
+        if valid_mask is not None:
+            valid_mask = valid_mask.to(device)
 
         # --- Run pipeline ---
         with torch.no_grad():
@@ -176,12 +191,11 @@ def main() -> None:
                 warped = result.warped
                 flow = result.flow
                 translated = result.translated
-                # Intra-modal metrics (translated vs fixed)
+                # Registration metrics compare the final warped moving image.
                 pre_zncc = _to_numpy_and_compute(moving, fixed, compute_zncc)
-                post_zncc = _to_numpy_and_compute(translated, fixed, compute_zncc)
+                post_zncc = _to_numpy_and_compute(warped, fixed, compute_zncc)
             else:
-                x_in = torch.cat([fixed, moving], dim=1)
-                warped, flow, _ = transmorph(x_in)
+                warped, flow, _ = transmorph(moving, fixed)
                 pre_zncc = _to_numpy_and_compute(moving, fixed, compute_zncc)
                 post_zncc = _to_numpy_and_compute(warped, fixed, compute_zncc)
 

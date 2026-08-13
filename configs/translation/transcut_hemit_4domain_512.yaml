@@ -1,0 +1,20 @@
+# Stable project-domain registry for the incrementally extracted HEMIT subset.
+# Marker PNGs are single-channel on disk; the existing loader converts them to
+# RGB because all domains share channels=3.
+modalities:
+  - id: 0
+    name: he
+    path: /data2/wuyh/HEMIT/dataset/processed_1200_150_150_512/train/he
+    channels: 3
+  - id: 1
+    name: dapi
+    path: /data2/wuyh/HEMIT/dataset/processed_1200_150_150_512/train/dapi
+    channels: 3
+  - id: 2
+    name: panck
+    path: /data2/wuyh/HEMIT/dataset/processed_1200_150_150_512/train/panck
+    channels: 3
+  - id: 3
+    name: cd3
+    path: /data2/wuyh/HEMIT/dataset/processed_1200_150_150_512/train/cd3
+    channels: 3

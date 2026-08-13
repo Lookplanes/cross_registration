@@ -1,41 +1,65 @@
-# Python
+# Python bytecode, test and coverage caches
 __pycache__/
 *.py[cod]
 *.egg-info/
-dist/
-build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
 
-# Jupyter
-.ipynb_checkpoints/
+# Build products
+/build/
+/dist/
 
-# IDE
-.vscode/
-.idea/
-*.code-workspace
-
-# Environment
+# Local environments and secrets
 .venv/
 venv/
 env/
+.env
+.env.*
+!.env.example
 
-# Data & results (managed externally)
-data/
-results/
-*.csv
-*.json
-*.png
-*.jpg
-*.tiff
-*.tif
+# Notebook and editor state
+.ipynb_checkpoints/
+.vscode/
+.idea/
+*.code-workspace
+*~
+*.swp
+
+# Repository-local datasets and generated experiment outputs
+/data/
+/dataset/
+/results/
+/outputs/
+/runs/
+/logs/
+/checkpoints/
+/wandb/
+
+# Model/runtime artifacts may also be written beside a script
 *.pth
+*.pt
 *.ckpt
+*.onnx
 *.log
+nohup.out
 
-# OS
+# Generated numerical arrays and medical-image volumes
+*.npy
+*.npz
+*.nii
+*.nii.gz
+
+# Meeting/report folders are local presentation material.  The engineering
+# facts they depend on belong in README-self.md and EXPERIMENTS.md.
+*Report/
+
+# Local inventory generated while inspecting external data mounts
+DATA_INVENTORY.md
+/checkpoint.json
+
+# OS metadata
 .DS_Store
 Thumbs.db
-
-# Conda
-*.egg
-
-DATA_INVENTORY.md

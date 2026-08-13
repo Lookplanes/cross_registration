@@ -8,6 +8,31 @@ from torch.utils.data import Dataset
 from .data_utils import pkload
 
 
+def _load_and_resize_flow(path, img_size=None):
+    """Load a ``(dy, dx)`` flow and preserve pixel units while resizing."""
+    import cv2
+
+    flow = np.load(path).astype(np.float32)
+    if flow.ndim != 3:
+        raise ValueError(f"flow must be 3-D, got {flow.shape} at {path}")
+    if flow.shape[0] == 2:
+        pass
+    elif flow.shape[-1] == 2:
+        flow = flow.transpose(2, 0, 1)
+    else:
+        raise ValueError(f"flow must have two channels, got {flow.shape} at {path}")
+
+    if img_size is not None and flow.shape[1:] != tuple(img_size):
+        old_h, old_w = flow.shape[1:]
+        new_h, new_w = img_size
+        dy = cv2.resize(flow[0], (new_w, new_h), interpolation=cv2.INTER_LINEAR)
+        dx = cv2.resize(flow[1], (new_w, new_h), interpolation=cv2.INTER_LINEAR)
+        dy *= new_h / old_h
+        dx *= new_w / old_w
+        flow = np.stack([dy, dx], axis=0)
+    return np.ascontiguousarray(flow, dtype=np.float32)
+
+
 def _apply_seeded_subset(pairs, sample_count=None, sample_seed=0):
     """Select a stable random subset from already-sorted pairs.
 
@@ -91,8 +116,9 @@ class PairedImageFolderDataset(Dataset):
 
     Pairing strategy: filename match by stem (e.g. 001.png in both folders).
 
-    Returns:
-      moving, fixed, (optional) fixed_mask
+    Returns a dictionary with named fields. ``flow`` always means the
+    backward-sampling displacement that warps ``moving`` into ``fixed``;
+    channel 0 is dy and channel 1 is dx.
       shapes:
         moving: [3,H,W] float32 in [0,1]
         fixed:  [3,H,W] float32 in [0,1]
@@ -109,6 +135,8 @@ class PairedImageFolderDataset(Dataset):
         img_size: tuple[int, int] | None = None,
         transforms=None,
         grayscale: bool = False,
+        require_flow: bool = False,
+        require_mask: bool = False,
     ):
         super().__init__()
         self.root_dir = root_dir
@@ -119,6 +147,8 @@ class PairedImageFolderDataset(Dataset):
         self.img_size = img_size
         self.transforms = transforms
         self.grayscale = grayscale
+        self.require_flow = require_flow
+        self.require_mask = require_mask
 
         if not os.path.isdir(self.moving_dir):
             raise FileNotFoundError(f"moving dir not found: {self.moving_dir}")
@@ -182,22 +212,32 @@ class PairedImageFolderDataset(Dataset):
             stem = os.path.splitext(os.path.basename(fixed_path))[0]
             flow_path = os.path.join(self.flow_dir, stem + '.npy')
             if os.path.isfile(flow_path):
-                flow = np.load(flow_path)
+                flow = _load_and_resize_flow(flow_path, self.img_size)
                 flow_t = torch.from_numpy(np.ascontiguousarray(flow.astype(np.float32)))
+            elif self.require_flow:
+                raise FileNotFoundError(f"flow not found for {fixed_path}: {flow_path}")
+
+        sample = {
+            "moving": moving_t,
+            "fixed": fixed_t,
+            "moving_path": moving_path,
+            "fixed_path": fixed_path,
+        }
+        if flow_t is not None:
+            sample["flow"] = flow_t
 
         if self.mask_dir is None:
-            if flow_t is not None:
-                return moving_t, fixed_t, flow_t
-            return moving_t, fixed_t
+            if self.require_mask:
+                raise RuntimeError("require_mask=True but mask_subdir was not provided")
+            return sample
 
         mask_path = os.path.join(self.mask_dir, os.path.basename(fixed_path))
         if not os.path.isfile(mask_path):
             raise FileNotFoundError(f"mask not found for {fixed_path}: {mask_path}")
         mask = self._read_mask(mask_path)
         mask_t = torch.from_numpy(np.ascontiguousarray(mask))
-        if flow_t is not None:
-            return moving_t, fixed_t, mask_t, flow_t
-        return moving_t, fixed_t, mask_t
+        sample["valid_mask"] = mask_t
+        return sample
 
     def __len__(self):
         return len(self.pairs)
@@ -216,11 +256,15 @@ class MultiModalityPairedDataset(Dataset):
         selected_names: list[str] | None = None,
         sample_count: int | None = None,
         sample_seed: int = 0,
+        require_flow: bool = False,
+        require_mask: bool = False,
     ):
         super().__init__()
         self.root_dir = root_dir
         self.img_size = img_size
         self.transforms = transforms
+        self.require_flow = require_flow
+        self.require_mask = require_mask
         self.pairs = []
         selected_name_set = set(selected_names) if selected_names else None
 
@@ -269,7 +313,11 @@ class MultiModalityPairedDataset(Dataset):
         self.pairs = _apply_seeded_subset(self.pairs, sample_count=sample_count, sample_seed=sample_seed)
 
         if len(self.pairs) == 0:
-            print(f"Warning: No paired images found under subdirectories of {self.root_dir}")
+            raise RuntimeError(f"No paired images found under subdirectories of {self.root_dir}")
+        if self.require_flow and any(p["flow"] is None for p in self.pairs):
+            raise FileNotFoundError("One or more paired samples are missing gt_flow")
+        if self.require_mask and any(p["mask"] is None for p in self.pairs):
+            raise FileNotFoundError("One or more paired samples are missing valid_mask")
 
     def _read_mask(self, path: str) -> np.ndarray:
         from PIL import Image
@@ -306,11 +354,7 @@ class MultiModalityPairedDataset(Dataset):
 
         flow = None
         if pair['flow'] is not None:
-            flow = np.load(pair['flow']).astype(np.float32)
-            if flow.ndim == 3:
-                # Ensure shape is (C, H, W). If (H, W, 2), transpose to (2, H, W).
-                if flow.shape[2] == 2:
-                    flow = flow.transpose(2, 0, 1)
+            flow = _load_and_resize_flow(pair['flow'], self.img_size)
 
         if self.transforms is not None:
             if flow is not None:
@@ -335,14 +379,17 @@ class MultiModalityPairedDataset(Dataset):
         if mask is not None:
             mask_t = torch.from_numpy(np.ascontiguousarray(mask))
 
-        if flow_t is not None and mask_t is not None:
-            return moving_t, fixed_t, flow_t, mask_t
-        elif flow_t is not None:
-            return moving_t, fixed_t, flow_t
-        elif mask_t is not None:
-            return moving_t, fixed_t, None, mask_t
-
-        return moving_t, fixed_t
+        sample = {
+            "moving": moving_t,
+            "fixed": fixed_t,
+            "moving_path": pair["moving"],
+            "fixed_path": pair["fixed"],
+        }
+        if flow_t is not None:
+            sample["flow"] = flow_t
+        if mask_t is not None:
+            sample["valid_mask"] = mask_t
+        return sample
 
     def __len__(self):
         return len(self.pairs)
@@ -368,6 +415,8 @@ class SingleModalityPairedDataset(MultiModalityPairedDataset):
         self.root_dir = target_dir
         self.img_size = img_size
         self.transforms = transforms
+        self.require_flow = False
+        self.require_mask = False
         self.pairs = []
         selected_name_set = set(selected_names) if selected_names else None
 

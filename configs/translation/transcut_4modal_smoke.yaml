@@ -1,0 +1,19 @@
+# Stable modality IDs for a four-domain TransCUT smoke test.
+# All inputs are intentionally converted to grayscale for the first experiment.
+modalities:
+  - id: 0
+    name: two_photon
+    path: /data2/wuyh/bioimg_data/patches/v001_512px/two_photon_multiphoton/Movie7_EP
+    channels: 1
+  - id: 1
+    name: confocal
+    path: /data2/wuyh/bioimg_data/patches/v001_512px/confocal_fluorescence/idr0056-stojic-lncrnas
+    channels: 1
+  - id: 2
+    name: brightfield_he
+    path: /data2/wuyh/bioimg_data/patches/v001_512px/brightfield_H&E/HistoPlexer-Ultivue-HE
+    channels: 1
+  - id: 3
+    name: cell_painting
+    path: /data2/wuyh/bioimg_data/patches/v001_512px/cell_painting/cpg0001_cellpainting_protocol_2026_06
+    channels: 1

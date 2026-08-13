@@ -28,76 +28,11 @@ if str(_src) not in sys.path:
 
 import torch
 from torch.utils.data import DataLoader
-from torchvision import transforms as T
-from PIL import Image
 
+from crossreg.data.translation import TwoDomainTranslationDataset
+from crossreg.config import parse_args_with_config, save_resolved_config
 from crossreg.translation.cut import CUTConfig, CUTWrapper
 from crossreg.utils.metrics import AverageMeter
-
-
-# ---------------------------------------------------------------------------
-# Simple paired dataset (source→target image folders)
-# ---------------------------------------------------------------------------
-
-class PairedTranslationDataset(torch.utils.data.Dataset):
-    """Dataset that loads paired images from ``dirA/`` and ``dirB/``.
-
-    Filenames are matched by stem.  Images are resized to *load_size* and
-    optionally cropped to *crop_size*.  Supports both grayscale (``input_nc=1``)
-    and RGB (``input_nc=3``).
-    """
-
-    def __init__(
-        self,
-        dir_A: str,
-        dir_B: str,
-        input_nc: int = 1,
-        load_size: int = 286,
-        crop_size: int = 256,
-        mode: str = "train",
-    ):
-        super().__init__()
-        self.dir_A = dir_A
-        self.dir_B = dir_B
-        self.input_nc = input_nc
-        exts = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp"}
-        files_A = {os.path.splitext(f)[0] for f in os.listdir(dir_A)
-                   if os.path.splitext(f)[1].lower() in exts}
-        files_B = {os.path.splitext(f)[0] for f in os.listdir(dir_B)
-                   if os.path.splitext(f)[1].lower() in exts}
-        self.keys = sorted(files_A & files_B)
-
-        transforms_list = [T.Resize(load_size), T.RandomCrop(crop_size)]
-        if mode == "train":
-            transforms_list.insert(1, T.RandomHorizontalFlip())
-        transforms_list.append(T.ToTensor())
-        if input_nc == 1:
-            transforms_list.append(T.Normalize((0.5,), (0.5,)))
-        else:
-            transforms_list.append(T.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)))
-        self.transform = T.Compose(transforms_list)
-
-    def __len__(self) -> int:
-        return len(self.keys)
-
-    def __getitem__(self, idx: int) -> dict[str, torch.Tensor]:
-        key = self.keys[idx]
-        a_path = self._find_file(self.dir_A, key)
-        b_path = self._find_file(self.dir_B, key)
-
-        mode = "L" if self.input_nc == 1 else "RGB"
-        A = self.transform(Image.open(a_path).convert(mode))
-        B = self.transform(Image.open(b_path).convert(mode))
-        return {"A": A, "B": B, "A_paths": a_path, "B_paths": b_path}
-
-    @staticmethod
-    def _find_file(directory: str, stem: str) -> str:
-        for ext in (".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp"):
-            p = os.path.join(directory, stem + ext)
-            if os.path.isfile(p):
-                return p
-        raise FileNotFoundError(f"No image found for '{stem}' in {directory}")
-
 
 # ---------------------------------------------------------------------------
 # CLI
@@ -110,6 +45,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--save-dir", default="./output/cut")
     p.add_argument("--input-nc", type=int, default=1)
     p.add_argument("--output-nc", type=int, default=1)
+    p.add_argument("--pairing-mode", choices=["unpaired", "paired"],
+                   default="unpaired")
     p.add_argument("--ngf", type=int, default=64)
     p.add_argument("--ndf", type=int, default=64)
     p.add_argument("--netF-nc", type=int, default=256)
@@ -124,11 +61,14 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--load-size", type=int, default=286)
     p.add_argument("--crop-size", type=int, default=256)
     p.add_argument("--batch-size", type=int, default=1)
+    p.add_argument("--num-workers", type=int, default=0)
     p.add_argument("--print-freq", type=int, default=100)
     p.add_argument("--save-epoch-freq", type=int, default=20)
     p.add_argument("--device", default="cuda")
-    p.add_argument("--resume", action="store_true")
-    return p.parse_args()
+    p.add_argument("--resume", action=argparse.BooleanOptionalAction, default=False)
+    return parse_args_with_config(
+        p, sections=("data", "model", "training", "checkpoint"),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -142,6 +82,13 @@ def main() -> None:
 
     save_dir = os.path.join(args.save_dir, args.name)
     os.makedirs(save_dir, exist_ok=True)
+    save_resolved_config(args, os.path.join(save_dir, "resolved_config.yaml"), {
+        "data": ("dataroot", "pairing_mode", "load_size", "crop_size", "num_workers"),
+        "model": ("input_nc", "output_nc", "ngf", "ndf", "netF_nc", "netG", "nce_layers"),
+        "training": ("name", "save_dir", "batch_size", "n_epochs", "n_epochs_decay", "lr",
+                     "lambda_GAN", "lambda_NCE", "print_freq", "device"),
+        "checkpoint": ("resume", "save_epoch_freq"),
+    })
 
     # ------------------------------------------------------------------
     # Config
@@ -173,15 +120,16 @@ def main() -> None:
         trainA_dir = os.path.join(args.dataroot, "A")
         trainB_dir = os.path.join(args.dataroot, "B")
 
-    dataset = PairedTranslationDataset(
+    dataset = TwoDomainTranslationDataset(
         trainA_dir, trainB_dir,
-        input_nc=args.input_nc,
+        input_nc=args.input_nc, output_nc=args.output_nc,
         load_size=args.load_size,
         crop_size=args.crop_size,
-        mode="train",
+        pairing_mode=args.pairing_mode,
     )
     loader = DataLoader(dataset, batch_size=args.batch_size,
-                        shuffle=True, num_workers=2, pin_memory=True)
+                        shuffle=True, num_workers=args.num_workers,
+                        pin_memory=(device.type == "cuda"))
     print(f"Dataset: {len(dataset)} pairs")
 
     # ------------------------------------------------------------------
@@ -194,11 +142,11 @@ def main() -> None:
     ckpt_path = os.path.join(save_dir, "latest_checkpoint.pth")
     if args.resume and os.path.exists(ckpt_path):
         print(f"Resuming from {ckpt_path}")
+        # PatchSampleF creates its MLPs lazily; materialise them before loading.
+        init_batch = next(iter(loader))
+        model.initialize_netF(init_batch)
         ck = torch.load(ckpt_path, map_location=device, weights_only=False)
-        model.netG.load_state_dict(ck["netG"])
-        model.netD.load_state_dict(ck["netD"])
-        if "netF" in ck:
-            model.netF.load_state_dict(ck["netF"])
+        model.load_training_state(ck)
         start_epoch = ck.get("epoch", 0)
         print(f"Resumed at epoch {start_epoch}")
 
@@ -249,12 +197,9 @@ def main() -> None:
             model.save_networks(save_dir, epoch + 1)
 
         # Latest checkpoint
-        torch.save({
-            "epoch": epoch + 1,
-            "netG": model.netG.state_dict(),
-            "netD": model.netD.state_dict(),
-            "netF": model.netF.state_dict(),
-        }, ckpt_path)
+        state = model.training_state()
+        state["epoch"] = epoch + 1
+        torch.save(state, ckpt_path)
 
         # LR decay
         model.update_learning_rate()

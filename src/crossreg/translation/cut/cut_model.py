@@ -180,6 +180,21 @@ class CUTWrapper(nn.Module):
             )
             self._F_initialized = True
 
+    def initialize_netF(self, data: dict) -> None:
+        """Materialise PatchSampleF's lazy MLPs without updating parameters."""
+        if self._F_initialized or self.config.lambda_NCE <= 0.0:
+            return
+        self.set_input(data)
+        self.forward()
+        with torch.no_grad():
+            feat = self.netG(self.real_A, self.nce_layers, encode_only=True)
+            self.netF(feat, self.config.num_patches, None)
+        self.optimizer_F = torch.optim.Adam(
+            self.netF.parameters(), lr=self.config.lr,
+            betas=(self.config.beta1, self.config.beta2),
+        )
+        self._F_initialized = True
+
     # ------------------------------------------------------------------
     # Forward
     # ------------------------------------------------------------------
@@ -240,6 +255,8 @@ class CUTWrapper(nn.Module):
 
     def _calculate_nce_loss(self, src, tgt):
         n_layers = len(self.nce_layers)
+        for criterion in self.criterionNCE:
+            criterion.batch_size = src.size(0)
         feat_q = self.netG(tgt, self.nce_layers, encode_only=True)
         if self.config.flip_equivariance and getattr(self, "flipped_for_equivariance", False):
             feat_q = [torch.flip(fq, [3]) for fq in feat_q]
@@ -328,6 +345,39 @@ class CUTWrapper(nn.Module):
     # Save / Load
     # ------------------------------------------------------------------
 
+    def training_state(self) -> dict:
+        """Return a complete, resumable CUT training checkpoint."""
+        return {
+            "format_version": 1,
+            "model_type": "CUT",
+            "config": vars(self.config).copy(),
+            "netG": self.netG.state_dict(),
+            "netD": self.netD.state_dict(),
+            "netF": self.netF.state_dict(),
+            "optimizer_G": self.optimizer_G.state_dict(),
+            "optimizer_D": self.optimizer_D.state_dict(),
+            "optimizer_F": self.optimizer_F.state_dict() if self.optimizer_F else None,
+            "decay_step": getattr(self, "_decay_step", 0),
+        }
+
+    def load_training_state(self, checkpoint: dict) -> None:
+        """Strictly restore all networks and available optimiser state."""
+        self.netG.load_state_dict(checkpoint["netG"], strict=True)
+        self.netD.load_state_dict(checkpoint["netD"], strict=True)
+        if checkpoint.get("netF"):
+            if not self._F_initialized:
+                raise RuntimeError("initialize_netF(data) must be called before loading netF")
+            self.netF.load_state_dict(checkpoint["netF"], strict=True)
+        if "optimizer_G" in checkpoint:
+            self.optimizer_G.load_state_dict(checkpoint["optimizer_G"])
+        if "optimizer_D" in checkpoint:
+            self.optimizer_D.load_state_dict(checkpoint["optimizer_D"])
+        if checkpoint.get("optimizer_F") is not None:
+            if self.optimizer_F is None:
+                raise RuntimeError("netF optimizer is not initialized")
+            self.optimizer_F.load_state_dict(checkpoint["optimizer_F"])
+        self._decay_step = checkpoint.get("decay_step", 0)
+
     def save_networks(self, save_dir: str, epoch: int):
         import os
         os.makedirs(save_dir, exist_ok=True)
@@ -405,9 +455,11 @@ class CUTInference(nn.Module):
         self.netG.eval()
 
     def load_weights(self, checkpoint_path: str):
-        """Load pretrained generator weights (e.g., ``latest_net_G.pth``)."""
-        state = torch.load(checkpoint_path, map_location=str(self.device))
-        self.netG.load_state_dict(state)
+        """Load either a generator state_dict or a complete training checkpoint."""
+        state = torch.load(checkpoint_path, map_location=str(self.device), weights_only=False)
+        if isinstance(state, dict) and "netG" in state:
+            state = state["netG"]
+        self.netG.load_state_dict(state, strict=True)
         self.netG.to(self.device)
         self.netG.eval()
         print(f"Loaded generator weights from {checkpoint_path}")

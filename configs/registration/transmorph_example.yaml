@@ -1,0 +1,25 @@
+data:
+  train_dir: /path/to/train
+  val_dir: /path/to/validation
+  img_size: [256, 256]
+  num_workers: 0
+
+model: {}
+
+training:
+  save_dir: /path/to/output
+  batch_size: 64
+  epochs: 400
+  lr: 0.0001
+  print_freq: 10
+  device: cpu
+
+loss:
+  ncc_weight: 1.0
+  reg_weight: 1.0
+
+validation:
+  val_interval: 1
+
+checkpoint:
+  resume: false

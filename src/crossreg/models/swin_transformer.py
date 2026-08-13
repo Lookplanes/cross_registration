@@ -454,8 +454,13 @@ class SwinTransformer(nn.Module):
                 nn.init.constant_(m.weight, 1.0)
         self.apply(_init_weights)
 
-    def forward(self, x):
-        x = self.patch_embed(x)
+    def forward_from_patch_map(self, x):
+        """Run the unchanged Swin hierarchy from an embedded patch map.
+
+        This keeps the original spatial grid and lets registration front-ends
+        inject conditioning immediately after ``patch_embed`` without copying
+        the Swin implementation.
+        """
         Wh, Ww = x.size(2), x.size(3)
         if self.ape:
             ape = F.interpolate(self.absolute_pos_embed, size=(Wh, Ww), mode='bicubic')
@@ -473,6 +478,9 @@ class SwinTransformer(nn.Module):
                 out = x_out.view(-1, H, W, self.num_features[i]).permute(0, 3, 1, 2).contiguous()
                 outs.append(out)
         return outs
+
+    def forward(self, x):
+        return self.forward_from_patch_map(self.patch_embed(x))
 
     def train(self, mode=True):
         super().train(mode)

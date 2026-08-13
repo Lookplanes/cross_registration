@@ -22,6 +22,7 @@ The input data should be structured as::
 from __future__ import annotations
 
 import argparse
+import copy
 import os
 import sys
 from pathlib import Path
@@ -39,6 +40,7 @@ from torch.utils.data import DataLoader
 from pytorch_msssim import SSIM
 
 from crossreg.data.datasets import MultiModalityPairedDataset
+from crossreg.config import parse_args_with_config, save_resolved_config
 from crossreg.registration.transmorph.model import TransMorph, CONFIGS
 from crossreg.registration.transmorph.losses import NCC_vxm, Grad
 from crossreg.utils.metrics import AverageMeter, compute_epe, build_foreground_mask
@@ -54,6 +56,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--val-dir", default=None, help="Root of validation data")
     p.add_argument("--save-dir", required=True, help="Output directory")
     p.add_argument("--batch-size", type=int, default=64)
+    p.add_argument("--num-workers", type=int, default=0)
     p.add_argument("--epochs", type=int, default=400)
     p.add_argument("--lr", type=float, default=1e-4)
     p.add_argument("--img-size", type=int, nargs=2, default=[256, 256])
@@ -63,8 +66,10 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--val-interval", type=int, default=1,
                    help="Validate every N epochs")
     p.add_argument("--device", default="cuda")
-    p.add_argument("--resume", action="store_true")
-    return p.parse_args()
+    p.add_argument("--resume", action=argparse.BooleanOptionalAction, default=False)
+    return parse_args_with_config(
+        p, sections=("data", "model", "training", "loss", "validation", "checkpoint"),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -113,11 +118,19 @@ def main() -> None:
 
     os.makedirs(os.path.join(args.save_dir, "experiments"), exist_ok=True)
     os.makedirs(os.path.join(args.save_dir, "logs"), exist_ok=True)
+    save_resolved_config(args, os.path.join(args.save_dir, "resolved_config.yaml"), {
+        "data": ("train_dir", "val_dir", "img_size", "num_workers"),
+        "model": (),
+        "training": ("save_dir", "batch_size", "epochs", "lr", "print_freq", "device"),
+        "loss": ("ncc_weight", "reg_weight"),
+        "validation": ("val_interval",),
+        "checkpoint": ("resume",),
+    })
 
     # ------------------------------------------------------------------
     # Model
     # ------------------------------------------------------------------
-    config = CONFIGS["TransMorph"]
+    config = copy.deepcopy(CONFIGS["TransMorph"])
     config.in_chans = 2
     config.img_size = tuple(args.img_size)
     model = TransMorph(config).to(device)
@@ -134,7 +147,8 @@ def main() -> None:
         img_size=tuple(args.img_size),
     )
     train_loader = DataLoader(train_set, batch_size=args.batch_size,
-                              shuffle=True, num_workers=2, pin_memory=True)
+                              shuffle=True, num_workers=args.num_workers,
+                              pin_memory=(device.type == "cuda"))
     print(f"Train: {len(train_set)} pairs")
 
     val_loader = None
@@ -144,7 +158,8 @@ def main() -> None:
             img_size=tuple(args.img_size),
         )
         val_loader = DataLoader(val_set, batch_size=min(args.batch_size, 50),
-                                shuffle=False, num_workers=2, pin_memory=True)
+                                shuffle=False, num_workers=args.num_workers,
+                                pin_memory=(device.type == "cuda"))
         print(f"Val: {len(val_set)} pairs")
 
     # ------------------------------------------------------------------
@@ -183,11 +198,10 @@ def main() -> None:
         loss_reg_m = AverageMeter()
 
         for idx, data in enumerate(train_loader):
-            data = [t.to(device) for t in data]
-            moving, fixed = data[0], data[1]
+            moving = data["moving"].to(device)
+            fixed = data["fixed"].to(device)
 
-            x_in = torch.cat([fixed, moving], dim=1)  # TransMorph: [fixed, moving]
-            warped, flow, _ = model(x_in)
+            warped, flow, _ = model(moving, fixed)
 
             loss_sim = criterion_sim(fixed, warped) * args.ncc_weight
             loss_reg = criterion_reg(flow, fixed) * args.reg_weight
@@ -222,19 +236,18 @@ def main() -> None:
 
             with torch.no_grad():
                 for data in val_loader:
-                    data = [t.to(device) for t in data]
-                    moving, fixed = data[0], data[1]
-                    x_in = torch.cat([fixed, moving], dim=1)
-                    warped, flow, _ = model(x_in)
+                    moving = data["moving"].to(device)
+                    fixed = data["fixed"].to(device)
+                    warped, flow, _ = model(moving, fixed)
 
                     # Mask
                     valid_mask = build_foreground_mask(fixed, threshold=0.01)
-                    if len(data) >= 4:
-                        valid_mask = data[3]
+                    if "valid_mask" in data:
+                        valid_mask = data["valid_mask"].to(device)
 
                     # EPE
-                    if len(data) >= 3:
-                        epe = compute_epe(flow, data[2], valid_mask)
+                    if "flow" in data:
+                        epe = compute_epe(flow, data["flow"].to(device), valid_mask)
                         eval_epe.update(epe, moving.size(0))
 
                     # SSIM
@@ -284,6 +297,9 @@ def main() -> None:
 
         # Latest checkpoint
         save_checkpoint({
+            "format_version": 1,
+            "model_type": "TransMorph",
+            "model_config": {"name": "TransMorph", "img_size": list(args.img_size), "in_chans": 2},
             "epoch": epoch + 1,
             "state_dict": model.state_dict(),
             "best_epe": best_epe,

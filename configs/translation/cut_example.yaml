@@ -1,0 +1,32 @@
+# Explicit CLI arguments override these YAML values.
+data:
+  dataroot: /path/to/dataset
+  pairing_mode: unpaired
+  load_size: 286
+  crop_size: 256
+  num_workers: 0
+
+model:
+  input_nc: 1
+  output_nc: 1
+  ngf: 64
+  ndf: 64
+  netF_nc: 256
+  netG: resnet_9blocks
+  nce_layers: [0, 4, 8, 12, 16]
+
+training:
+  name: cut_example
+  save_dir: /path/to/output
+  batch_size: 1
+  n_epochs: 200
+  n_epochs_decay: 200
+  lr: 0.0002
+  lambda_GAN: 1.0
+  lambda_NCE: 1.0
+  print_freq: 100
+  device: cpu
+
+checkpoint:
+  resume: false
+  save_epoch_freq: 20
